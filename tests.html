@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case-maker round-trip tests</title>
+<style>
+  body { font: 14px/1.45 -apple-system, 'Segoe UI', Roboto, sans-serif; margin: 24px; color: #1e293b; background: #f8fafc; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #64748b; margin: 0 0 16px; }
+  .row { padding: 6px 10px; border-radius: 6px; margin: 3px 0; background: #fff; border: 1px solid #e2e8f0; }
+  .pass { border-left: 4px solid #16a34a; }
+  .fail { border-left: 4px solid #dc2626; background: #fef2f2; }
+  .known { border-left: 4px solid #f59e0b; background: #fffbeb; }
+  pre { white-space: pre-wrap; font-size: 12px; margin: 4px 0 0; color: #7f1d1d; }
+  #summary { font-weight: 600; margin: 12px 0; font-size: 16px; }
+</style>
+</head>
+<body>
+<h1>Case-maker round-trip tests</h1>
+<p class="sub">Encodes fixture cases with case-maker, decodes them with each simulator's <b>own</b> source files, and compares.
+Serve the <code>Coding</code> folder (e.g. <code>python -m http.server</code>) and open <code>/case-maker/tests.html</code>.</p>
+<div id="summary">Running…</div>
+<div id="out"></div>
+
+<script type="module">
+import { blankCase, resolve, setOverride, clone, setPaediatric } from './js/model.js';
+import { ENCODERS } from './js/encoders/index.js';
+import { minify } from './js/encoders/dpoae.js';
+
+const out = document.getElementById('out');
+const results = { pass: 0, fail: 0, known: 0 };
+
+function report(name, status, detail = '') {
+  results[status]++;
+  const div = document.createElement('div');
+  div.className = `row ${status}`;
+  div.textContent = `${status === 'pass' ? '✔' : status === 'known' ? '⚠ known issue' : '✘'}  ${name}`;
+  if (detail) { const pre = document.createElement('pre'); pre.textContent = detail; div.appendChild(pre); }
+  out.appendChild(div);
+}
+
+// JSON round trip normalises numeric keys to strings and drops undefined.
+const norm = (o) => JSON.parse(JSON.stringify(o));
+
+function diff(a, b, path = '') {
+  a = norm(a); b = norm(b);
+  const diffs = [];
+  (function walk(x, y, p) {
+    if (typeof x === 'number' && typeof y === 'number') { if (Math.abs(x - y) > 1e-9) diffs.push(`${p}: ${x} ≠ ${y}`); return; }
+    if (x === null || y === null || typeof x !== 'object' || typeof y !== 'object') { if (x !== y) diffs.push(`${p}: ${JSON.stringify(x)} ≠ ${JSON.stringify(y)}`); return; }
+    new Set([...Object.keys(x), ...Object.keys(y)]).forEach((k) => walk(x[k], y[k], p ? `${p}.${k}` : k));
+  })(a, b, path);
+  return diffs;
+}
+
+function check(name, actual, expected, { known } = {}) {
+  const d = diff(actual, expected);
+  if (!d.length) report(name, 'pass');
+  else report(name, known ? 'known' : 'fail', (known ? known + '\n' : '') + d.slice(0, 12).join('\n'));
+}
+
+async function attempt(name, fn) {
+  try { await fn(); } catch (e) { report(name, 'fail', e.stack || String(e)); }
+}
+
+// ─── loading the simulators' own code ──────────────────────────────────────
+
+const text = async (p) => { const r = await fetch(p, { cache: 'no-store' }); if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`); return r.text(); };
+
+// Run a classic (non-module) script against a fake window and return named locals.
+async function loadClassic(path, fakeWindow, names = []) {
+  const src = await text(path);
+  const ret = names.length ? `;return {${names.join(',')}};` : '';
+  return new Function('window', 'globalThis', src + ret)(fakeWindow, fakeWindow);
+}
+
+// Pull top-level `function name(...) {...}` declarations out of a big app file.
+function extractFunctions(src, names) {
+  return names.map((name) => {
+    const m = new RegExp(`(async\\s+)?function\\s+${name}\\s*\\(`).exec(src);
+    if (!m) throw new Error(`function ${name} not found`);
+    let i = src.indexOf('{', m.index);
+    let depth = 0;
+    for (let j = i; j < src.length; j++) {
+      if (src[j] === '{') depth++;
+      else if (src[j] === '}') { depth--; if (depth === 0) return src.slice(m.index, j + 1); }
+    }
+    throw new Error(`function ${name} unterminated`);
+  }).join('\n');
+}
+
+const hashPart = (url, key) => new URL(url).hash.slice(1).match(new RegExp(`${key}=(.+)`))[1];
+
+// ─── fixtures ──────────────────────────────────────────────────────────────
+
+function setAudiogram(c, ear, ac, bc) {
+  Object.entries(ac).forEach(([f, v]) => { c.audiogram[ear].ac[f] = v; });
+  Object.entries(bc).forEach(([f, v]) => { c.audiogram[ear].bc[f] = v; });
+}
+
+function adultCase() {
+  const c = blankCase();
+  c.meta.title = 'OSCA Practice Case 1 – Mäori ā';
+  c.history.patient.name = 'OSCA Practice Case 1';
+  c.history.patient.age = '67';
+  c.history.history.reasonForAppointment = 'GP referral, difficulty in noise.';
+  setAudiogram(c, 'right',
+    { 250: 10, 500: 10, 1000: 15, 2000: 20, 3000: 35, 4000: 45, 6000: 50, 8000: 45 },
+    { 250: 10, 500: 10, 1000: 15, 2000: 20, 3000: 35, 4000: 45 });
+  setAudiogram(c, 'left',
+    { 250: 80, 500: 85, 1000: 90, 2000: 95, 4000: 100, 8000: 110 },
+    { 250: 45, 500: 60, 1000: 65, 2000: 70, 4000: 70 });
+  return c;
+}
+
+function childCase() {
+  const c = blankCase();
+  c.meta.title = 'Ruby, 4 – glue ear';
+  setPaediatric(c, true);
+  c.history.patient.name = 'Ruby';
+  c.history.patient.age = '4 years';
+  c.history.history.reasonForAppointment = 'Failed B4 School Check.';
+  ['right', 'left'].forEach((ear) => setAudiogram(c, ear,
+    { 250: 40, 500: 40, 1000: 35, 2000: 30, 4000: 35, 8000: 30 },
+    { 250: 5, 500: 5, 1000: 5, 2000: 5, 4000: 10 }));
+  return c;
+}
+
+function edgeCase() {
+  const c = adultCase();
+  c.meta.title = 'Edge case';
+  setOverride(c, 'pta', 'locked', true);
+  setOverride(c, 'pta', 'transducer', 'insertphone');
+  setOverride(c, 'pta', 'toggleDirection', 'up-quieter');
+  setOverride(c, 'pta', 'crossIAA.headphone.500', 55);
+  setOverride(c, 'pta', 'right.psychWidth.1000', 10);
+  setOverride(c, 'play', 'locked', true);
+  setOverride(c, 'immittance', 'ears.right.reflexes.ipsi.1000', null);
+  setOverride(c, 'immittance', 'ears.left.tympType', 'Ad');
+  setOverride(c, 'immittance', 'ears.left.TPP', -350);
+  setOverride(c, 'abr', 'ears.0.latI', 1.65);
+  setOverride(c, 'abr', 'ears.0.latV', 5.85);
+  setOverride(c, 'abr', 'ears.1.path', 2);
+  setOverride(c, 'abr', 'ears.1.morph', 4);
+  setOverride(c, 'abr', 'noise', 1.5);
+  setOverride(c, 'abr', 'electrodes', 3);
+  setOverride(c, 'dpoae', 'protocol', 'dp0_5_10');
+  setOverride(c, 'dpoae', 'ears.right.points.3.level', 12.5);
+  setOverride(c, 'dpoae', 'ears.right.points.3.snr', 18);
+  setOverride(c, 'speech', 'rightEar.dataPoints', [{ level: 30, score: 10 }, { level: 40, score: 55 }, { level: 55, score: 90 }, { level: 70, score: 100 }]);
+  return c;
+}
+
+const FIXTURES = { adult: adultCase(), child: childCase(), edge: edgeCase() };
+
+// ─── tests ─────────────────────────────────────────────────────────────────
+
+await attempt('vendored files match the simulators', async () => {
+  const pairs = [
+    ['vendor/pta/share-codec.js', '../pta-simulator/js/share-codec.js'],
+    ['vendor/pta/utils.js', '../pta-simulator/js/utils.js'],
+    ['vendor/pta/obfuscate.js', '../pta-simulator/js/obfuscate.js'],
+    ['vendor/abr/codec.js', '../ABR/js/codec.js'],
+    ['vendor/history/cases.js', '../history-taking-simulator/js/cases.js'],
+  ];
+  for (const [mine, orig] of pairs) {
+    const [a, b] = await Promise.all([text(mine), text(orig)]);
+    if (a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n')) report(`drift: ${mine}`, 'pass');
+    else report(`drift: ${mine}`, 'fail', `differs from ${orig} – re-copy it`);
+  }
+});
+
+// PTA
+const ptaCodec = await import('../pta-simulator/js/share-codec.js');
+const ptaObf = await import('../pta-simulator/js/obfuscate.js');
+const ptaSer = await import('../pta-simulator/js/session-serializer.js');
+const b64urlBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - s.length % 4) % 4)), (ch) => ch.charCodeAt(0));
+
+for (const [fx, c] of Object.entries(FIXTURES)) {
+  await attempt(`PTA ${fx}`, async () => {
+    const r = ENCODERS.pta.build(c, 'deployed');
+    const exp = resolve(c, 'pta');
+    const dec = ptaCodec.decodeCompact(b64urlBytes(hashPart(r.url, 'c')), { xorPatientBytes: ptaObf.xorBytes });
+    check(`PTA ${fx}: #c= link`, { p: dec.patient, t: dec.transducer, d: dec.toggleDirection, l: dec.locked },
+      { p: exp.patient, t: exp.transducer, d: exp.toggleDirection, l: exp.locked });
+    const file = ptaSer.deserializeSession(JSON.parse(r.files[0].content));
+    const patient = file.patient.__obfuscated ? ptaObf.deobfuscate(file.patient.data) : file.patient;
+    check(`PTA ${fx}: .json file`, { patient, info: file.patientInfo, locked: file.locked }, { patient: exp.patient, info: exp.patientInfo, locked: exp.locked });
+    if (exp.locked && !file.patient.__obfuscated) report(`PTA ${fx}: locked file is obfuscated`, 'fail');
+  });
+}
+
+// ABR
+const abrWin = {};
+await loadClassic('../ABR/js/codec.js', abrWin);
+for (const [fx, c] of Object.entries(FIXTURES)) {
+  await attempt(`ABR ${fx}`, async () => {
+    const r = ENCODERS.abr.build(c, 'deployed');
+    const exp = resolve(c, 'abr');
+    const dec = abrWin.ABRCodec.decode(hashPart(r.url, 'case'));
+    check(`ABR ${fx}`, dec, exp);
+    if (r.url.length > 255) report(`ABR ${fx}: link ≤ 255 chars`, 'fail', `${r.url.length} chars`);
+  });
+}
+
+// Immittance
+const imm = await loadClassic('../immittance%20simulator/caseCodec.js', {}, ['decodePatientCompact']);
+function immittanceLoad(url) {
+  // Mirrors init() in "immittance simulator/app.js".
+  const caseParam = new URLSearchParams(new URL(url).hash.replace(/^#/, '')).get('case');
+  let patient = null;
+  try {
+    patient = JSON.parse(decodeURIComponent(escape(atob(caseParam))));
+    if (!patient || typeof patient !== 'object' || !patient.ears) patient = null;
+  } catch (_) { /* not legacy */ }
+  return patient || imm.decodePatientCompact(caseParam);
+}
+for (const [fx, c] of Object.entries(FIXTURES)) {
+  await attempt(`Immittance ${fx}`, async () => {
+    const exp = resolve(c, 'immittance');
+    const dec = immittanceLoad(ENCODERS.immittance.build(c, 'deployed').url);
+    check(`Immittance ${fx}`, { name: dec.name, ears: dec.ears }, { name: exp.name, ears: exp.ears });
+  });
+}
+await attempt('Immittance biphasic', async () => {
+  const c = clone(FIXTURES.adult);
+  setOverride(c, 'immittance', 'ears.right.reflexShape', 'biphasic');
+  const r = ENCODERS.immittance.build(c, 'deployed');
+  const exp = resolve(c, 'immittance');
+  const dec = immittanceLoad(r.url);
+  check('Immittance biphasic (lossless legacy link)', { ears: dec.ears, id: dec.id }, { ears: exp.ears, id: exp.id });
+});
+
+// Speech
+const speechSrc = await text('../speech-testing-simulator/index.html');
+const speech = new Function(extractFunctions(speechSrc, ['decodeBase64Url', 'denormaliseCompactEar', 'normaliseEar'])
+  + ';return {decodeBase64Url, denormaliseCompactEar, normaliseEar};')();
+function speechLoad(url) {
+  // Mirrors importPatientFromLink() in speech-testing-simulator/index.html.
+  const [id, name, rightEar, leftEar] = JSON.parse(speech.decodeBase64Url(new URL(url).searchParams.get('case')));
+  return { id, name, rightEar: speech.normaliseEar(speech.denormaliseCompactEar(rightEar)), leftEar: speech.normaliseEar(speech.denormaliseCompactEar(leftEar)) };
+}
+for (const [fx, c] of Object.entries(FIXTURES)) {
+  await attempt(`Speech ${fx}`, async () => check(`Speech ${fx}`, speechLoad(ENCODERS.speech.build(c, 'deployed').url), resolve(c, 'speech')));
+}
+await attempt('Speech 0% scores', async () => {
+  const c = clone(FIXTURES.adult);
+  setOverride(c, 'speech', 'leftEar.piMax', 0);
+  setOverride(c, 'speech', 'leftEar.score90', 0);
+  setOverride(c, 'speech', 'leftEar.dataPoints', [{ level: 90, score: 0 }, { level: 100, score: 0 }]);
+  check('Speech 0% PI max / 90 dB score', speechLoad(ENCODERS.speech.build(c, 'deployed').url), resolve(c, 'speech'),
+    { known: 'normaliseEar turns 0 into 100 – fixed in stage 3.' });
+});
+
+// Play
+async function loadPlay() {
+  const win = { location: { hash: '', href: 'https://x/' } };
+  await loadClassic('../play-simulator/js/obfuscate.js', win);
+  await loadClassic('../play-simulator/js/share-link.js', win);
+  await loadClassic('../play-simulator/js/case-serializer.js', win);
+  return win;
+}
+const playWin = await loadPlay();
+function playLoad(url) {
+  // index.html reads the hash, then a card click runs deserializeCase + applyCase.
+  playWin.location.hash = new URL(url).hash;
+  const shared = playWin.ShareLink.readShareUrl('case');
+  return playWin.CaseSerializer.applyCase(playWin.CaseSerializer.deserializeCase(shared));
+}
+for (const [fx, c] of Object.entries(FIXTURES)) {
+  await attempt(`Play ${fx}`, async () => {
+    const exp = resolve(c, 'play');
+    const dec = playLoad(ENCODERS.play.build(c, 'deployed').url);
+    const { locked, videoSet, ...rest } = exp;
+    check(`Play ${fx}`, dec, rest);
+  });
+}
+await attempt('Play videoSet', async () => {
+  const c = clone(FIXTURES.child);
+  setOverride(c, 'play', 'videoSet', 'benji');
+  const dec = playLoad(ENCODERS.play.build(c, 'deployed').url);
+  check('Play videoSet survives the link', { videoSet: dec.videoSet }, { videoSet: 'benji' },
+    { known: 'applyCase drops videoSet – fixed in stage 3.' });
+});
+
+// DPOAE
+const dpoaeSrc = await text('../dpoae-simulator/app.js');
+const dpoae = new Function(extractFunctions(dpoaeSrc, ['base64urlToBytes', 'decodeCase']) + ';return {decodeCase};')();
+for (const [fx, c] of Object.entries(FIXTURES)) {
+  await attempt(`DPOAE ${fx}`, async () => {
+    const r = await ENCODERS.dpoae.build(c, 'deployed');
+    const dec = await dpoae.decodeCase(new URL(r.url).hash.match(/(?:^|[#&])case=([^&]+)/)[1]);
+    check(`DPOAE ${fx}`, dec, minify(resolve(c, 'dpoae')));
+  });
+}
+
+// History
+const hist = await import('../history-taking-simulator/js/cases.js');
+for (const [fx, c] of Object.entries(FIXTURES)) {
+  await attempt(`History ${fx}`, async () => {
+    const r = ENCODERS.history.build(c, 'deployed');
+    const h = JSON.parse(r.files[0].content);
+    const prompt = hist.buildSystemPrompt(h);
+    if (!(h.id && h.patient && h.history)) throw new Error('import validation would reject it');
+    const tmpl = hist.newCaseTemplate(!!h.paediatricHistory);
+    const missing = [];
+    (function keys(t, o, p) {
+      Object.keys(t).forEach((k) => {
+        if (!(k in o)) missing.push(p + k);
+        else if (t[k] && typeof t[k] === 'object' && !Array.isArray(t[k])) keys(t[k], o[k], `${p}${k}.`);
+      });
+    })(tmpl, h, '');
+    if (missing.length) report(`History ${fx}`, 'fail', 'missing: ' + missing.join(', '));
+    else if (!prompt.includes(h.patient.name)) report(`History ${fx}`, 'fail', 'prompt lacks patient name');
+    else report(`History ${fx}`, 'pass');
+  });
+}
+
+// Derive sanity checks against the clinical rules.
+await attempt('derive rules', async () => {
+  const a = FIXTURES.adult;
+  const pta = resolve(a, 'pta');
+  check('derive: PTA left 1 kHz = BC 65 + gap 25', { c: pta.patient.left.cochlear[1000], g: pta.patient.left.ipsiConductive[1000] }, { c: 65, g: 25 });
+  check('derive: PTA left 8 kHz carries 4 kHz gap', { c: pta.patient.left.cochlear[8000], g: pta.patient.left.ipsiConductive[8000] }, { c: 80, g: 30 });
+  const imm = resolve(a, 'immittance');
+  check('derive: left conductive adult → As, reflexes absent', { t: imm.ears.left.tympType, r: imm.ears.left.reflexes.ipsi[1000] }, { t: 'As', r: null });
+  const kid = resolve(FIXTURES.child, 'immittance');
+  check('derive: child conductive → B', kid.ears.right.tympType, 'B');
+  const abr = resolve(FIXTURES.child, 'abr');
+  check('derive: ABR child 4 y', { adult: abr.adult, m: abr.ageMonths }, { adult: false, m: 48 });
+  const dp = resolve(FIXTURES.child, 'dpoae');
+  check('derive: DPOAE absent with conductive gap', dp.ears.right.points.every((p) => !p.present), true);
+});
+
+document.getElementById('summary').textContent =
+  `${results.pass} passed, ${results.fail} failed, ${results.known} known issues`;
+document.title = `${results.fail ? '✘' : '✔'} ${document.title}`;
+window.__results = results;
+</script>
+</body>
+</html>
