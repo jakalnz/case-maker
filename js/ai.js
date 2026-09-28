@@ -1,7 +1,7 @@
 // Auto-fill a case from guidance text and anonymised documents (PDFs/images)
 // via the history simulator's Cloudflare worker, which forwards the request
-// body unchanged to the Claude Messages API. Structured outputs
-// (output_config.format) guarantee the reply matches EXTRACT_SCHEMA.
+// body unchanged to the Claude Messages API. Claude replies with JSON matching
+// EXTRACT_SCHEMA (given in the prompt); normalise() enforces it on arrival.
 
 import { HISTORY_WORKER_URL } from './config.js';
 
@@ -24,33 +24,49 @@ export const setModel = (m) => safe(() => localStorage.setItem(MODEL_KEY, m), nu
 
 const str = { type: 'string' };
 const bool = { type: 'boolean' };
-const nint = { type: ['integer', 'null'] };
-const nnum = { type: ['number', 'null'] };
-const enm = (values) => ({ type: 'string', enum: values });
+const num = { type: 'number' };
+const int = { type: 'integer' };
+// Fixed-choice fields are plain strings that list their choices in the
+// description; normalise() maps each reply back onto the allowed values.
+const ENUMS = new WeakMap();
+const enm = (values, note) => {
+  const schema = { type: 'string', description: `One of: ${values.map((v) => (v === '' ? '"" (none)' : v)).join(' | ')}${note ? `. ${note}` : ''}` };
+  ENUMS.set(schema, values);
+  return schema;
+};
 const arrEnum = (values) => ({ type: 'array', items: enm(values) });
 const obj = (props) => ({ type: 'object', properties: props, required: Object.keys(props), additionalProperties: false });
-const nullable = (schema) => ({ anyOf: [schema, { type: 'null' }] });
-const row = (freqs) => obj(Object.fromEntries(freqs.map((f) => [String(f), nint])));
-const reflexVal = { anyOf: [{ type: 'integer' }, enm(['NR']), { type: 'null' }] };
-const reflexRow = obj({ 500: reflexVal, 1000: reflexVal, 2000: reflexVal });
+const list = (props) => ({ type: 'array', items: obj(props) });
+const ear = enm(['right', 'left']);
+const intNote = (note) => ({ type: 'integer', description: note });
 
-const AC_FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000];
-const BC_FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000];
-
-const speechEar = nullable(obj({
-  piMax: nnum,
-  score90: nnum,
-  dataPoints: { type: 'array', items: obj({ level: { type: 'number' }, score: { type: 'number' } }) },
-}));
-const immEar = nullable(obj({
-  tympType: nullable(enm(['A', 'As', 'Ad', 'B', 'C'])),
-  peakAdmittance: nnum,
-  TPP: nint,
-  ECV: nnum,
-  ipsi: reflexRow,
-  contra: reflexRow,
-}));
-const dpoaeEar = nullable({ type: 'array', items: obj({ f2Hz: { type: 'integer' }, present: bool }) });
+// Test results are lists of what was actually measured: anything not tested is
+// simply absent.
+const thresholds = list({
+  ear,
+  conduction: enm(['AC', 'BC']),
+  freqHz: intNote('250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000 or 8000'),
+  dbHL: int,
+  noResponse: bool,
+});
+const speechEars = list({
+  ear,
+  piMax: { ...num, description: 'Maximum word score %, or -1 if not reported' },
+  score90: { ...num, description: 'Score % at 90 dB HL, or -1 if not reported' },
+  dataPoints: list({ level: num, score: num }),
+});
+const immittanceEars = list({
+  ear: enm(['right', 'left'], 'The probe ear'),
+  tympType: enm(['unknown', 'A', 'As', 'Ad', 'B', 'C']),
+  measures: list({ measure: enm(['peakAdmittance', 'TPP', 'ECV']), value: num }),
+  reflexes: list({
+    type: enm(['ipsi', 'contra'], 'contra = stimulus in the opposite ear to this probe ear'),
+    freqHz: intNote('500, 1000 or 2000'),
+    present: bool,
+    dbHL: { ...int, description: 'Reflex threshold; 0 when absent' },
+  }),
+});
+const dpoaePoints = list({ ear, f2Hz: int, present: bool });
 
 export const EXTRACT_SCHEMA = obj({
   caseTitle: str,
@@ -95,7 +111,7 @@ export const EXTRACT_SCHEMA = obj({
     familyHistory: obj({ has: bool, details: str }),
     otherConcerns: str,
   }),
-  paediatric: nullable(obj({
+  paediatric: obj({
     gestationalAge: str,
     birthWeight: str,
     nicuAdmission: bool,
@@ -105,15 +121,12 @@ export const EXTRACT_SCHEMA = obj({
     speechLanguageSummary: str,
     developmentSummary: str,
     functionalImpactSummary: str,
-  })),
-  otoscopy: obj({ description: str, findings: str }),
-  audiogram: obj({
-    rightAC: row(AC_FREQS), leftAC: row(AC_FREQS),
-    rightBC: row(BC_FREQS), leftBC: row(BC_FREQS),
   }),
-  speech: obj({ right: speechEar, left: speechEar }),
-  immittance: obj({ right: immEar, left: immEar }),
-  dpoae: obj({ right: dpoaeEar, left: dpoaeEar }),
+  otoscopy: obj({ description: str, findings: str }),
+  audiogram: thresholds,
+  speech: speechEars,
+  immittance: immittanceEars,
+  dpoae: dpoaePoints,
   abr: obj({
     rightPathology: enm(['none', 'retrocochlear', 'ANSD']),
     leftPathology: enm(['none', 'retrocochlear', 'ANSD']),
@@ -126,6 +139,8 @@ export const EXTRACT_SCHEMA = obj({
   possibleIdentifiers: { type: 'array', items: str },
 });
 
+const SCHEMA_TEXT = JSON.stringify(EXTRACT_SCHEMA);
+
 // ─── prompt ────────────────────────────────────────────────────────────────
 
 const SYSTEM = `You help an audiology educator turn clinical source material into a fictional teaching case for a set of student simulators (history taking with an AI patient, otoscopy, pure-tone/play audiometry, speech testing, immittance, DPOAEs, ABR).
@@ -135,8 +150,7 @@ Privacy comes first. The documents should already be anonymised, but check anywa
 - List in possibleIdentifiers every identifying detail you notice in the documents, described by type and location (e.g. "NHI number in the page 1 header", "clinician's name in the signature"). Do not repeat the identifier itself. Use an empty list if there are none.
 
 How to fill the case:
-- Test results (audiogram, speech, immittance, DPOAE, ABR) must come from the documents or from explicit guidance. Where there is no information, use null (or an empty list) rather than guessing. Audiogram values are dB HL on a 5 dB grid; use null for frequencies not tested; for "no response" record the maximum tested level and say so in provenance.notes. Right ear = red O / < symbols, left ear = blue X / > symbols. Unmasked and masked BC are both just BC here.
-- Reflexes: a number in dB HL, "NR" when tested and absent, null when not tested. "contra" is keyed by the probe ear (contra.right = probe right, stimulus left).
+- Test results (audiogram, speech, immittance, DPOAE, ABR) must come from the documents or from explicit guidance, never guessed. List only what was actually tested; leave a list empty when a test wasn't done. Audiogram thresholds are dB HL on a 5 dB grid, one entry per ear/conduction/frequency; for "no response" give the maximum level tested with noResponse true. Right ear = red O / < symbols, left ear = blue X / > symbols. Masked and unmasked BC are both just BC here. For speech, use -1 for a PI max or 90 dB score that isn't reported. For immittance, "ear" is the probe ear; a contra reflex has its stimulus in the other ear; list absent reflexes with present false and dbHL 0. If the case is not paediatric, leave the paediatric fields empty.
 - The history is spoken by the AI patient (or caregiver for a child). Write details in plain first-hand facts, not clinical shorthand. Hold back secondary details behind "[ASK: topic]" tags so students must ask for them, e.g. "Noticed it about 5 years ago. [ASK: which ear is worse] The left is worse." Keep the history consistent with the test results.
 - ${'{{INVENT}}'}
 - Record in provenance which parts came from the documents and which were invented, and note anything uncertain (e.g. an unreadable scan).
@@ -144,6 +158,53 @@ How to fill the case:
 
 const INVENT_ON = 'Where the documents and guidance are silent about the history, invent plausible, internally consistent details that suit the teaching goal (and list them in provenance.invented). Never invent test results.';
 const INVENT_OFF = 'Do not invent anything: leave history fields empty ("" / false / []) when the documents and guidance do not cover them.';
+
+// The reply is plain JSON (a structured-output grammar for this schema is too
+// large for the API), so normalise() enforces the schema here: fixed choices
+// are matched case-insensitively (unknown -> first choice, or dropped from
+// lists), missing or mistyped fields get safe defaults, numeric strings are
+// converted, and list entries missing a required number are dropped.
+export function normalise(schema, data) {
+  const allowed = ENUMS.get(schema);
+  if (allowed) {
+    if (typeof data !== 'string') return allowed[0];
+    return allowed.find((v) => v === data) ?? allowed.find((v) => v.toLowerCase() === data.trim().toLowerCase()) ?? allowed[0];
+  }
+  switch (schema.type) {
+    case 'string': return typeof data === 'string' ? data : (data == null || typeof data === 'object' ? '' : String(data));
+    case 'boolean': return data === true || data === 'true';
+    case 'number':
+    case 'integer': {
+      const n = typeof data === 'number' ? data : (typeof data === 'string' && data.trim() !== '' ? Number(data) : NaN);
+      if (Number.isFinite(n)) return schema.type === 'integer' ? Math.round(n) : n;
+      return /-1/.test(schema.description || '') ? -1 : NaN;
+    }
+    case 'array': {
+      if (!Array.isArray(data)) return [];
+      const items = schema.items;
+      const itemEnum = ENUMS.get(items);
+      const kept = itemEnum ? data.filter((d) => typeof d === 'string' && itemEnum.some((v) => v.toLowerCase() === d.trim().toLowerCase())) : data;
+      const out = kept.map((d) => normalise(items, d));
+      return items.type === 'object'
+        ? out.filter((o) => Object.values(o).every((v) => typeof v !== 'number' || Number.isFinite(v)))
+        : out;
+    }
+    case 'object': {
+      const src = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+      return Object.fromEntries(Object.keys(schema.properties).map((k) => [k, normalise(schema.properties[k], src[k])]));
+    }
+    default: return data;
+  }
+}
+
+// Pull the JSON object out of the reply text (tolerates code fences or stray prose).
+export function parseReply(text) {
+  const t = text.replace(/```(?:json)?/gi, '');
+  const a = t.indexOf('{');
+  const b = t.lastIndexOf('}');
+  if (a < 0 || b <= a) throw new Error('no JSON object');
+  return JSON.parse(t.slice(a, b + 1));
+}
 
 // ─── files ─────────────────────────────────────────────────────────────────
 
@@ -180,10 +241,15 @@ export async function extractCase({ guidance, files, invent }) {
   const body = {
     model: getModel(),
     max_tokens: 16000,
-    system: SYSTEM.replace('{{INVENT}}', invent ? INVENT_ON : INVENT_OFF),
+    system: `${SYSTEM.replace('{{INVENT}}', invent ? INVENT_ON : INVENT_OFF)}
+
+Reply with only one JSON object that matches this JSON Schema: no other text, no code fences. Fields described as "One of: …" must use exactly one of the listed values.
+<schema>
+${SCHEMA_TEXT}
+</schema>`,
     messages: [{ role: 'user', content }],
     // Medium effort keeps a multi-page read to around a minute; thinking counts toward max_tokens.
-    output_config: { effort: 'medium', format: { type: 'json_schema', schema: EXTRACT_SCHEMA } },
+    output_config: { effort: 'medium' },
   };
 
   let res;
@@ -197,17 +263,22 @@ export async function extractCase({ guidance, files, invent }) {
     throw new AiError(`Could not reach the Claude service (${e.message}). Auto-fill only works from the live site, jakalnz.github.io.`);
   }
   const text = await res.text();
-  if (res.status === 401) throw new AiError('The access code was not accepted.');
+  // The worker answers a wrong code with plain "Unauthorised"; a JSON 401 is
+  // Anthropic rejecting the worker's own API key.
+  if (res.status === 401 && !text.trim().startsWith('{')) throw new AiError('The access code was not accepted by the Claude service.');
+  if (res.status === 401) throw new AiError('The Claude service’s API key was rejected by Anthropic – the worker’s ANTHROPIC_API_KEY secret needs updating.');
   let data;
   try { data = JSON.parse(text); } catch { throw new AiError(`Unexpected reply (HTTP ${res.status}): ${text.slice(0, 200)}`); }
   if (!res.ok) throw new AiError(`Claude API error (HTTP ${res.status}): ${data.error?.message || text.slice(0, 200)}`);
   if (data.stop_reason === 'refusal') throw new AiError('Claude declined this request. Check the documents are anonymised and suitable, then try again.');
   if (data.stop_reason === 'max_tokens') throw new AiError('The reply was cut off before the case was finished. Try again, or split the documents into two runs.');
-  const out = (data.content || []).find((b) => b.type === 'text');
-  if (!out) throw new AiError('The reply had no case data.');
+  const text2 = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+  if (!text2.trim()) throw new AiError('The reply had no case data.');
+  let parsed;
   try {
-    return { result: JSON.parse(out.text), usage: data.usage, model: data.model };
+    parsed = parseReply(text2);
   } catch {
-    throw new AiError('The reply was not valid case data.');
+    throw new AiError('Claude’s reply couldn’t be read as case data. Try again.');
   }
+  return { result: normalise(EXTRACT_SCHEMA, parsed), usage: data.usage, model: data.model };
 }

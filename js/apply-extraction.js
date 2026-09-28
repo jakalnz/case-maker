@@ -22,14 +22,16 @@ export function describe(x) {
   const p = x.patient;
   out.history = `${p.name || 'Unnamed'}, ${p.age || 'age unknown'}${x.isPaediatric ? ' (paediatric)' : ''} – ${x.history.reasonForAppointment || 'no reason given'}`;
   out.otoscopy = x.otoscopy.description || x.otoscopy.findings ? (x.otoscopy.findings || x.otoscopy.description) : null;
-  const pts = EARS.flatMap((e) => ['AC', 'BC'].map((k) => Object.values(x.audiogram[`${e}${k}`]).filter((v) => v != null).length));
-  const n = pts.reduce((a, b) => a + b, 0);
+  const count = (e, k) => x.audiogram.filter((t) => t.ear === e && t.conduction === k).length;
+  const pts = [count('right', 'AC'), count('right', 'BC'), count('left', 'AC'), count('left', 'BC')];
+  const n = pts.reduce((p, q) => p + q, 0);
   out.audiogram = n ? `${n} thresholds (R AC ${pts[0]}, R BC ${pts[1]}, L AC ${pts[2]}, L BC ${pts[3]})` : null;
-  const sp = EARS.filter((e) => x.speech[e]).map((e) => `${cap(e)}: PI max ${x.speech[e].piMax ?? '?'}%, ${x.speech[e].dataPoints.length} points`);
+  const sp = x.speech.map((q) => `${cap(q.ear)}: PI max ${q.piMax >= 0 ? q.piMax + '%' : '?'}, ${q.dataPoints.length} points`);
   out.speech = sp.length ? sp.join('; ') : null;
-  const im = EARS.filter((e) => x.immittance[e]).map((e) => `${cap(e)}: type ${x.immittance[e].tympType ?? '?'}`);
+  const im = x.immittance.map((q) => `${cap(q.ear)}: type ${q.tympType}, ${q.reflexes.length} reflexes`);
   out.immittance = im.length ? im.join('; ') : null;
-  const dp = EARS.filter((e) => x.dpoae[e] && x.dpoae[e].length).map((e) => `${cap(e)}: ${x.dpoae[e].filter((q) => q.present).length}/${x.dpoae[e].length} present`);
+  const dp = EARS.map((e) => [e, x.dpoae.filter((q) => q.ear === e)]).filter(([, l]) => l.length)
+    .map(([e, l]) => `${cap(e)}: ${l.filter((q) => q.present).length}/${l.length} present`);
   out.dpoae = dp.length ? dp.join('; ') : null;
   out.abr = x.abr.rightPathology !== 'none' || x.abr.leftPathology !== 'none' ? `Right ${x.abr.rightPathology}, left ${x.abr.leftPathology}` : null;
   return out;
@@ -46,7 +48,7 @@ export function applyExtraction(c, x, sections) {
     h.patient.chattiness = clamp(Math.round(x.patient.chattiness || 3), 1, 5);
     h.meta = { ...h.meta, ...x.meta };
     h.history = JSON.parse(JSON.stringify(x.history));
-    if (x.isPaediatric && x.paediatric) {
+    if (x.isPaediatric) {
       const ph = h.paediatricHistory;
       const q = x.paediatric;
       Object.assign(ph.prenatalAndPerinatal, { gestationalAge: q.gestationalAge, birthWeight: q.birthWeight, nicuAdmission: q.nicuAdmission });
@@ -73,48 +75,44 @@ export function applyExtraction(c, x, sections) {
     // value for it, so an AC-only report doesn't wipe BC entered by hand.
     EARS.forEach((e) => {
       [['ac', 'AC', FREQS], ['bc', 'BC', BC_FREQS]].forEach(([kind, key, freqs]) => {
-        const src = x.audiogram[`${e}${key}`];
-        if (!freqs.some((f) => src[f] != null)) return;
-        freqs.forEach((f) => { c.audiogram[e][kind][f] = fixDb(src[f]); });
+        const src = x.audiogram.filter((t) => t.ear === e && t.conduction === key && freqs.includes(t.freqHz));
+        if (!src.length) return;
+        freqs.forEach((f) => { c.audiogram[e][kind][f] = null; });
+        src.forEach((t) => { c.audiogram[e][kind][t.freqHz] = fixDb(t.dbHL); });
       });
     });
   }
 
   if (on('speech')) {
-    EARS.forEach((e) => {
-      const s = x.speech[e];
-      if (!s) return;
-      const key = `${e}Ear`;
-      if (s.piMax != null) setOverride(c, 'speech', `${key}.piMax`, clamp(Math.round(s.piMax), 0, 100));
-      if (s.score90 != null) setOverride(c, 'speech', `${key}.score90`, clamp(Math.round(s.score90), 0, 100));
+    x.speech.forEach((s) => {
+      const key = `${s.ear}Ear`;
+      if (s.piMax >= 0) setOverride(c, 'speech', `${key}.piMax`, clamp(Math.round(s.piMax), 0, 100));
+      if (s.score90 >= 0) setOverride(c, 'speech', `${key}.score90`, clamp(Math.round(s.score90), 0, 100));
       if (s.dataPoints.length) {
         setOverride(c, 'speech', `${key}.dataPoints`, s.dataPoints.slice(0, 8)
           .map((d) => ({ level: clamp(r5(d.level), -10, 100), score: clamp(Math.round(d.score), 0, 100) }))
-          .sort((a, b) => a.level - b.level));
+          .sort((p, q) => p.level - q.level));
       }
     });
   }
 
   if (on('immittance')) {
-    EARS.forEach((e) => {
-      const m = x.immittance[e];
-      if (!m) return;
-      const base = `ears.${e}`;
-      if (m.tympType) setOverride(c, 'immittance', `${base}.tympType`, m.tympType);
-      if (m.peakAdmittance != null) setOverride(c, 'immittance', `${base}.peakAdmittance`, Math.round(m.peakAdmittance * 100) / 100);
-      if (m.TPP != null) setOverride(c, 'immittance', `${base}.TPP`, Math.round(m.TPP));
-      if (m.ECV != null) setOverride(c, 'immittance', `${base}.ECV`, Math.round(m.ECV * 100) / 100);
+    x.immittance.forEach((m) => {
+      const base = `ears.${m.ear}`;
+      if (m.tympType !== 'unknown') setOverride(c, 'immittance', `${base}.tympType`, m.tympType);
       if (m.tympType === 'B') setOverride(c, 'immittance', `${base}.gradient`, 0);
-      ['ipsi', 'contra'].forEach((side) => [500, 1000, 2000].forEach((f) => {
-        const v = m[side][f];
-        if (v === 'NR') setOverride(c, 'immittance', `${base}.reflexes.${side}.${f}`, null);
-        else if (typeof v === 'number') setOverride(c, 'immittance', `${base}.reflexes.${side}.${f}`, clamp(r5(v), 70, 110));
-      }));
+      m.measures.forEach(({ measure, value }) => {
+        const v = measure === 'TPP' ? Math.round(value) : Math.round(value * 100) / 100;
+        setOverride(c, 'immittance', `${base}.${measure}`, v);
+      });
+      m.reflexes.forEach((r) => {
+        setOverride(c, 'immittance', `${base}.reflexes.${r.type}.${r.freqHz}`, r.present ? clamp(r5(r.dbHL), 70, 110) : null);
+      });
     });
   }
 
   if (on('dpoae')) {
-    const all = EARS.flatMap((e) => x.dpoae[e] || []);
+    const all = x.dpoae;
     if (all.length) {
       const wide = all.some((q) => q.f2Hz < 1000 || q.f2Hz > 6000);
       const protocol = wide ? 'dp0_5_10' : 'dp1_6';
@@ -122,10 +120,10 @@ export function applyExtraction(c, x, sections) {
       Object.keys(c.sims.dpoae.overrides).forEach((k) => { if (k.startsWith('ears.')) delete c.sims.dpoae.overrides[k]; });
       if (protocol !== resolve(c, 'dpoae').protocol) setOverride(c, 'dpoae', 'protocol', protocol);
       const grid = DPOAE_PROTOCOLS[protocol].points;
-      EARS.forEach((e) => (x.dpoae[e] || []).forEach((q) => {
+      all.forEach((q) => {
         const i = grid.reduce((best, f, j) => (Math.abs(Math.log(f / q.f2Hz)) < Math.abs(Math.log(grid[best] / q.f2Hz)) ? j : best), 0);
-        setOverride(c, 'dpoae', `ears.${e}.points.${i}.present`, !!q.present);
-      }));
+        setOverride(c, 'dpoae', `ears.${q.ear}.points.${i}.present`, !!q.present);
+      });
     }
   }
 

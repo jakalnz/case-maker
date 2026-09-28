@@ -372,7 +372,7 @@ await attempt('AI schema', async () => {
     (s.anyOf || []).forEach((a, i) => walk(a, `${p}|${i}`));
     ['minimum', 'maximum', 'minLength', 'maxLength', 'pattern'].forEach((k) => { if (k in s) bad.push(`${p}: unsupported ${k}`); });
   })(EXTRACT_SCHEMA, 'root');
-  report('AI schema follows structured-output rules', bad.length ? 'fail' : 'pass', bad.join('\n'));
+  report('AI schema is well-formed', bad.length ? 'fail' : 'pass', bad.join('\n'));
 });
 
 function sampleExtraction() {
@@ -399,18 +399,25 @@ function sampleExtraction() {
       familyHistory: { has: true, details: 'Mother had surgery for otosclerosis.' },
       otherConcerns: '',
     },
-    paediatric: null,
+    paediatric: { gestationalAge: '', birthWeight: '', nicuAdmission: false, newbornScreeningResult: '', newbornScreeningTechnology: '',
+      b4SchoolCheckResult: '', speechLanguageSummary: '', developmentSummary: '', functionalImpactSummary: '' },
     otoscopy: { description: 'Right ear hearing loss.', findings: 'Normal tympanic membranes.' },
-    audiogram: {
-      rightAC: row(AC, (f) => (f === 750 || f === 1500 ? null : 45)), leftAC: row(AC, 10),
-      rightBC: row(BC, (f) => (f === 2000 ? 30 : f === 750 || f === 1500 ? null : 10)), leftBC: row(BC, (f) => (f === 750 || f === 1500 ? null : 10)),
-    },
-    speech: { right: { piMax: 100, score90: 100, dataPoints: [{ level: 50, score: 30 }, { level: 60, score: 80 }, { level: 75, score: 100 }] }, left: null },
-    immittance: {
-      right: { tympType: 'As', peakAdmittance: 0.18, TPP: -10, ECV: 1.1, ipsi: { 500: 'NR', 1000: 'NR', 2000: 'NR' }, contra: { 500: 'NR', 1000: 'NR', 2000: null } },
-      left: { tympType: 'A', peakAdmittance: 0.8, TPP: 0, ECV: 1.2, ipsi: { 500: 85, 1000: 85, 2000: 90 }, contra: { 500: 'NR', 1000: 'NR', 2000: 'NR' } },
-    },
-    dpoae: { right: [{ f2Hz: 1000, present: false }, { f2Hz: 4000, present: false }], left: [{ f2Hz: 1000, present: true }, { f2Hz: 4000, present: true }] },
+    audiogram: [
+      ...[250, 500, 1000, 2000, 3000, 4000, 6000, 8000].flatMap((f) => [
+        { ear: 'right', conduction: 'AC', freqHz: f, dbHL: 45, noResponse: false },
+        { ear: 'left', conduction: 'AC', freqHz: f, dbHL: 10, noResponse: false }]),
+      ...[250, 500, 1000, 2000, 3000, 4000].flatMap((f) => [
+        { ear: 'right', conduction: 'BC', freqHz: f, dbHL: f === 2000 ? 30 : 10, noResponse: false },
+        { ear: 'left', conduction: 'BC', freqHz: f, dbHL: 10, noResponse: false }]),
+    ],
+    speech: [{ ear: 'right', piMax: 100, score90: 100, dataPoints: [{ level: 50, score: 30 }, { level: 60, score: 80 }, { level: 75, score: 100 }] }],
+    immittance: [
+      { ear: 'right', tympType: 'As', measures: [{ measure: 'peakAdmittance', value: 0.18 }, { measure: 'TPP', value: -10 }, { measure: 'ECV', value: 1.1 }],
+        reflexes: [500, 1000, 2000].map((f) => ({ type: 'ipsi', freqHz: f, present: false, dbHL: 0 })) },
+      { ear: 'left', tympType: 'A', measures: [{ measure: 'peakAdmittance', value: 0.8 }],
+        reflexes: [{ type: 'ipsi', freqHz: 500, present: true, dbHL: 85 }, { type: 'ipsi', freqHz: 2000, present: true, dbHL: 90 }] },
+    ],
+    dpoae: [{ ear: 'right', f2Hz: 1000, present: false }, { ear: 'right', f2Hz: 4000, present: false }, { ear: 'left', f2Hz: 1000, present: true }, { ear: 'left', f2Hz: 4000, present: true }],
     abr: { rightPathology: 'none', leftPathology: 'none' },
     provenance: { fromDocuments: ['Audiogram'], invented: ['Occupation'], notes: '' },
     possibleIdentifiers: [],
@@ -419,6 +426,31 @@ function sampleExtraction() {
 
 await attempt('AI apply', async () => {
   const { applyExtraction, describe, SECTIONS } = await import('./js/apply-extraction.js');
+  const { normalise, EXTRACT_SCHEMA: SCHEMA } = await import('./js/ai.js');
+  const messy = sampleExtraction();
+  messy.patient.pronoun = 'SHE/HER';
+  messy.meta.category = ['otosclerosis', 'Not a category'];
+  messy.immittance[0].tympType = 'Type As?';
+  const n = normalise(SCHEMA, messy);
+  // Empty and partly broken replies must still apply without throwing.
+  const all = SECTIONS.map(([k]) => k);
+  const cEmpty = blankCase();
+  applyExtraction(cEmpty, normalise(SCHEMA, {}), all);
+  describe(normalise(SCHEMA, {}));
+  const broken = sampleExtraction();
+  broken.audiogram = [{ ear: 'right', conduction: 'AC', freqHz: '1000', dbHL: '40' }, { ear: 'left', conduction: 'AC', freqHz: 500 }];
+  broken.speech = { right: 'oops' };
+  delete broken.history.tinnitus;
+  broken.dpoae = [{ ear: 'left', present: true }];
+  const nb = normalise(SCHEMA, broken);
+  const cBroken = blankCase();
+  applyExtraction(cBroken, nb, all);
+  check('AI normalise: broken reply', { n: nb.audiogram.length, db: cBroken.audiogram.right.ac[1000], sp: nb.speech, tin: nb.history.tinnitus.present, dp: nb.dpoae.length },
+    { n: 1, db: 40, sp: [], tin: false, dp: 0 });
+  const { parseReply } = await import('./js/ai.js');
+  check('AI parseReply: fenced JSON', parseReply('Here you go:\n```json\n{"a": {"b": 1}}\n```'), { a: { b: 1 } });
+  check('AI normalise: fixed choices', { p: n.patient.pronoun, cat: n.meta.category, t: n.immittance[0].tympType, f: n.audiogram[0].freqHz },
+    { p: 'she/her', cat: ['Otosclerosis'], t: 'unknown', f: 250 });
   const c = blankCase();
   const x = sampleExtraction();
   const found = describe(x);
@@ -442,7 +474,7 @@ await attempt('AI apply', async () => {
   // An AC-only report must not wipe BC already on the case.
   const c2 = FIXTURES.adult ? clone(FIXTURES.adult) : blankCase();
   const x2 = sampleExtraction();
-  Object.keys(x2.audiogram.rightBC).forEach((f) => { x2.audiogram.rightBC[f] = null; x2.audiogram.leftBC[f] = null; });
+  x2.audiogram = x2.audiogram.filter((t) => t.conduction === 'AC');
   applyExtraction(c2, x2, ['audiogram']);
   check('AI apply: AC-only keeps existing BC', { rbc: c2.audiogram.right.bc[1000], lbc: c2.audiogram.left.bc[1000], rac: c2.audiogram.right.ac[1000] },
     { rbc: 15, lbc: 65, rac: 45 });
