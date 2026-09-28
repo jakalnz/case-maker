@@ -182,7 +182,8 @@ export async function extractCase({ guidance, files, invent }) {
     max_tokens: 16000,
     system: SYSTEM.replace('{{INVENT}}', invent ? INVENT_ON : INVENT_OFF),
     messages: [{ role: 'user', content }],
-    output_config: { format: { type: 'json_schema', schema: EXTRACT_SCHEMA } },
+    // Medium effort keeps a multi-page read to around a minute; thinking counts toward max_tokens.
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: EXTRACT_SCHEMA } },
   };
 
   let res;
@@ -201,7 +202,7 @@ export async function extractCase({ guidance, files, invent }) {
   try { data = JSON.parse(text); } catch { throw new AiError(`Unexpected reply (HTTP ${res.status}): ${text.slice(0, 200)}`); }
   if (!res.ok) throw new AiError(`Claude API error (HTTP ${res.status}): ${data.error?.message || text.slice(0, 200)}`);
   if (data.stop_reason === 'refusal') throw new AiError('Claude declined this request. Check the documents are anonymised and suitable, then try again.');
-  if (data.stop_reason === 'max_tokens') throw new AiError('The reply was cut off (too long). Try fewer or shorter documents.');
+  if (data.stop_reason === 'max_tokens') throw new AiError('The reply was cut off before the case was finished. Try again, or split the documents into two runs.');
   const out = (data.content || []).find((b) => b.type === 'text');
   if (!out) throw new AiError('The reply had no case data.');
   try {

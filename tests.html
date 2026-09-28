@@ -438,6 +438,14 @@ await attempt('AI apply', async () => {
   check('AI apply: PTA round-trip', dec.patient, resolve(c, 'pta').patient);
   hist.buildSystemPrompt(JSON.parse(ENCODERS.history.build(c, 'deployed').files[0].content));
   report('AI apply: history prompt builds', 'pass');
+
+  // An AC-only report must not wipe BC already on the case.
+  const c2 = FIXTURES.adult ? clone(FIXTURES.adult) : blankCase();
+  const x2 = sampleExtraction();
+  Object.keys(x2.audiogram.rightBC).forEach((f) => { x2.audiogram.rightBC[f] = null; x2.audiogram.leftBC[f] = null; });
+  applyExtraction(c2, x2, ['audiogram']);
+  check('AI apply: AC-only keeps existing BC', { rbc: c2.audiogram.right.bc[1000], lbc: c2.audiogram.left.bc[1000], rac: c2.audiogram.right.ac[1000] },
+    { rbc: 15, lbc: 65, rac: 45 });
 });
 
 // UI smoke test: every step renders for each example case without throwing.

@@ -69,9 +69,14 @@ export function applyExtraction(c, x, sections) {
   }
 
   if (on('audiogram')) {
+    // Replace a row (e.g. right AC) only when the documents give at least one
+    // value for it, so an AC-only report doesn't wipe BC entered by hand.
     EARS.forEach((e) => {
-      FREQS.forEach((f) => { c.audiogram[e].ac[f] = fixDb(x.audiogram[`${e}AC`][f]); });
-      BC_FREQS.forEach((f) => { c.audiogram[e].bc[f] = fixDb(x.audiogram[`${e}BC`][f]); });
+      [['ac', 'AC', FREQS], ['bc', 'BC', BC_FREQS]].forEach(([kind, key, freqs]) => {
+        const src = x.audiogram[`${e}${key}`];
+        if (!freqs.some((f) => src[f] != null)) return;
+        freqs.forEach((f) => { c.audiogram[e][kind][f] = fixDb(src[f]); });
+      });
     });
   }
 
