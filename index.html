@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case-maker</title>
+<meta name="description" content="Build one audiology teaching case and generate links for every simulator.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><img src="favicon.svg" alt="" width="26" height="26"> Case-maker</div>
+  <input id="caseTitle" class="title-input" placeholder="Untitled case" aria-label="Case title">
+  <div class="top-actions">
+    <button id="btnProjects" class="btn ghost" type="button">Cases ▾</button>
+    <button id="btnTheme" class="btn ghost icon" type="button" title="Toggle dark mode" aria-label="Toggle dark mode">◐</button>
+  </div>
+</header>
+<div class="layout">
+  <nav id="rail" class="rail" aria-label="Steps"></nav>
+  <main id="panel" class="panel"></main>
+</div>
+<div id="gate" class="gate" hidden>
+  <form class="gate-box">
+    <h2>Case-maker</h2>
+    <p>Instructor tool. Enter the admin PIN.</p>
+    <input id="gatePin" type="password" inputmode="numeric" autocomplete="off" aria-label="PIN">
+    <button class="btn primary" type="submit">Unlock</button>
+    <p id="gateMsg" class="hint"></p>
+  </form>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

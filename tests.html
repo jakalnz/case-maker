@@ -333,6 +333,24 @@ await attempt('derive rules', async () => {
   check('derive: DPOAE absent with conductive gap', dp.ears.right.points.every((p) => !p.present), true);
 });
 
+// UI smoke test: every step renders for each example case without throwing.
+const { adultExample, childExample } = await import('./js/examples.js');
+const stepNames = ['start', 'history', 'otoscopy', 'audiogram', 'speech', 'immittance', 'dpoae', 'abr', 'output'];
+for (const [name, make] of [['adult example', adultExample], ['child example', childExample], ['blank', blankCase]]) {
+  await attempt(`UI ${name}`, async () => {
+    const app = { c: make(), refresh() {}, save() {}, load() {}, go() {}, newCase() {} };
+    const failed = [];
+    for (const s of stepNames) {
+      try {
+        const mod = await import(`./js/steps/${s}.js`);
+        const node = mod.render(app);
+        if (!(node instanceof Node)) throw new Error('did not return a node');
+      } catch (e) { failed.push(`${s}: ${e.message}`); }
+    }
+    report(`UI renders every step (${name})`, failed.length ? 'fail' : 'pass', failed.join('\n'));
+  });
+}
+
 document.getElementById('summary').textContent =
   `${results.pass} passed, ${results.fail} failed, ${results.known} known issues`;
 document.title = `${results.fail ? '✘' : '✔'} ${document.title}`;

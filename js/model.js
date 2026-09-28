@@ -169,7 +169,9 @@ export function parseAgeMonths(str) {
 }
 
 const caseTitle = (c) => c.meta.title || c.history.patient.name || 'Untitled case';
-const caseSlugId = (c) => 'cm-' + slugify(caseTitle(c));
+// Short but stable per project (DPOAE also seeds its generated values from it),
+// so links stay under the 255-character limit.
+const caseSlugId = (c) => 'cm-' + String(c.id).replace(/-/g, '').slice(0, 8);
 
 // ─── derive: native case for each simulator ────────────────────────────────
 

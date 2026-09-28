@@ -7,8 +7,12 @@ The audiogram is entered once and drives the defaults for every test; anything
 can be overridden. The output is a link per simulator (plus `.json` files for the
 history simulator and PTA).
 
-Status: **stage 1** – case model, per-simulator encoders and round-trip tests.
-The wizard UI, PDF auto-fill and otoscopy upload come next.
+Status: **stage 2** – the step-by-step editor (history, otoscopy text, audiogram,
+PTA/play, speech, immittance, DPOAE, ABR), the links & files page, and saving /
+opening cases. PDF auto-fill with Claude and otoscopy image upload come next.
+
+Open `index.html` (PIN `1234`). Cases autosave in the browser; use **Cases ▾** to
+start a new one, open or download a `.casemaker.json` file, or duplicate a case.
 
 ## Development
 
@@ -25,6 +29,10 @@ round-tripped through its simulator's own decoder; see `vendor/README.md` for th
 copied simulator files.
 
 ## Layout
+
+- `index.html`, `js/main.js` – app shell, step rail, case storage, PIN gate
+- `js/steps/` – one module per step, each `render(app)` → DOM node
+- `js/ui.js` – DOM helpers; `simInput()` binds a field to a simulator value and records an override when edited
 
 - `js/model.js` – the case project, audiogram interpretation, `derive*()` rules, overrides
 - `js/encoders/` – one module per simulator, each `build(case, target)` → `{ url, files, warnings, note }`
