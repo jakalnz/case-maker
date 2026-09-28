@@ -159,6 +159,21 @@ table.data td .sim-input input { min-width: 50px; }
 .pill { font-size: 11px; border-radius: 999px; padding: 1px 8px; border: 1px solid var(--border-strong); color: var(--muted); }
 .pill.long { color: var(--warn); border-color: var(--warn); }
 
+/* otoscopy */
+.oto-ears { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.oto-ear { display: grid; gap: 8px; align-content: start; }
+.oto-ear h4 { margin: 0; }
+.oto-chosen { display: grid; justify-items: center; gap: 4px; min-height: 90px; place-content: center; background: var(--surface-2); border-radius: 10px; padding: 8px; }
+.oto-chosen img { width: 180px; height: 180px; object-fit: cover; border-radius: 50%; border: 3px solid var(--border-strong); }
+.oto-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; max-height: 320px; overflow: auto; }
+.oto-thumb { border: 2px solid transparent; border-radius: 8px; padding: 4px; background: var(--surface-2); cursor: pointer; display: grid; gap: 3px; font-size: 11px; color: var(--muted); }
+.oto-thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; }
+.oto-thumb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oto-thumb[hidden] { display: none; }
+.oto-thumb.on { border-color: var(--accent); background: var(--accent-soft); }
+.oto-upload { display: grid; gap: 6px; }
+.oto-upload[open] > :not(summary) { margin-top: 6px; }
+
 .callout { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .dropzone { border: 2px dashed var(--border-strong); border-radius: 10px; padding: 22px; text-align: center; color: var(--muted); }
 .dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
