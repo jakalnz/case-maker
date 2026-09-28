@@ -162,6 +162,7 @@ await attempt('vendored files match the simulators', async () => {
     ['vendor/pta/utils.js', '../pta-simulator/js/utils.js'],
     ['vendor/pta/obfuscate.js', '../pta-simulator/js/obfuscate.js'],
     ['vendor/abr/codec.js', '../ABR/js/codec.js'],
+    ['vendor/play/case-codec.js', '../play-simulator/js/case-codec.js'],
     ['vendor/history/cases.js', '../history-taking-simulator/js/cases.js'],
   ];
   for (const [mine, orig] of pairs) {
@@ -229,12 +230,12 @@ await attempt('Immittance biphasic', async () => {
   const r = ENCODERS.immittance.build(c, 'deployed');
   const exp = resolve(c, 'immittance');
   const dec = immittanceLoad(r.url);
-  check('Immittance biphasic (lossless legacy link)', { ears: dec.ears, id: dec.id }, { ears: exp.ears, id: exp.id });
+  check('Immittance biphasic (compact link)', { ears: dec.ears, short: !decodeURIComponent(r.url).includes('%') && r.url.length < 255 }, { ears: exp.ears, short: true });
 });
 
 // Speech
 const speechSrc = await text('../speech-testing-simulator/index.html');
-const speech = new Function(extractFunctions(speechSrc, ['decodeBase64Url', 'denormaliseCompactEar', 'normaliseEar'])
+const speech = new Function(extractFunctions(speechSrc, ['decodeBase64Url', 'denormaliseCompactEar', 'numOr', 'normaliseEar'])
   + ';return {decodeBase64Url, denormaliseCompactEar, normaliseEar};')();
 function speechLoad(url) {
   // Mirrors importPatientFromLink() in speech-testing-simulator/index.html.
@@ -249,8 +250,7 @@ await attempt('Speech 0% scores', async () => {
   setOverride(c, 'speech', 'leftEar.piMax', 0);
   setOverride(c, 'speech', 'leftEar.score90', 0);
   setOverride(c, 'speech', 'leftEar.dataPoints', [{ level: 90, score: 0 }, { level: 100, score: 0 }]);
-  check('Speech 0% PI max / 90 dB score', speechLoad(ENCODERS.speech.build(c, 'deployed').url), resolve(c, 'speech'),
-    { known: 'normaliseEar turns 0 into 100 – fixed in stage 3.' });
+  check('Speech 0% PI max / 90 dB score', speechLoad(ENCODERS.speech.build(c, 'deployed').url), resolve(c, 'speech'));
 });
 
 // Play
@@ -258,6 +258,7 @@ async function loadPlay() {
   const win = { location: { hash: '', href: 'https://x/' } };
   await loadClassic('../play-simulator/js/obfuscate.js', win);
   await loadClassic('../play-simulator/js/share-link.js', win);
+  await loadClassic('../play-simulator/js/case-codec.js', win);
   await loadClassic('../play-simulator/js/case-serializer.js', win);
   return win;
 }
@@ -272,7 +273,7 @@ for (const [fx, c] of Object.entries(FIXTURES)) {
   await attempt(`Play ${fx}`, async () => {
     const exp = resolve(c, 'play');
     const dec = playLoad(ENCODERS.play.build(c, 'deployed').url);
-    const { locked, videoSet, ...rest } = exp;
+    const { locked, ...rest } = exp;
     check(`Play ${fx}`, dec, rest);
   });
 }
@@ -280,8 +281,30 @@ await attempt('Play videoSet', async () => {
   const c = clone(FIXTURES.child);
   setOverride(c, 'play', 'videoSet', 'benji');
   const dec = playLoad(ENCODERS.play.build(c, 'deployed').url);
-  check('Play videoSet survives the link', { videoSet: dec.videoSet }, { videoSet: 'benji' },
-    { known: 'applyCase drops videoSet – fixed in stage 3.' });
+  check('Play videoSet survives the link', { videoSet: dec.videoSet }, { videoSet: 'benji' });
+});
+await attempt('Play link format', async () => {
+  for (const [fx, c] of Object.entries(FIXTURES)) {
+    const url = ENCODERS.play.build(c, 'deployed').url;
+    const compact = hashPart(url, 'case')[0] === '~';
+    if (!compact || url.length > 255) report(`Play ${fx}: short link`, 'fail', `${compact ? 'compact' : 'long JSON'}, ${url.length} chars`);
+    else report(`Play ${fx}: short link (${url.length} chars)`, 'pass');
+  }
+  const c = clone(FIXTURES.child);
+  setOverride(c, 'play', 'locked', true);
+  const url = ENCODERS.play.build(c, 'deployed').url;
+  const bytes = hashPart(url, 'case');
+  const exp = resolve(c, 'play');
+  const { locked, ...rest } = exp;
+  const dec = playLoad(url);
+  check('Play locked compact link', dec, rest);
+  const plain = hashPart(ENCODERS.play.build(FIXTURES.child, 'deployed').url, 'case');
+  report('Play locked: threshold bytes are obfuscated', bytes !== plain && bytes.length === plain.length ? 'pass' : 'fail');
+  const c2 = clone(FIXTURES.child);
+  setOverride(c2, 'play', 'clipEligibility', { correct: ['a'] });
+  const url2 = ENCODERS.play.build(c2, 'deployed').url;
+  const { locked: _l, ...rest2 } = resolve(c2, 'play');
+  check('Play long-format fallback (clip restriction)', { long: hashPart(url2, 'case')[0] !== '~', dec: playLoad(url2) }, { long: true, dec: rest2 });
 });
 
 // DPOAE

@@ -7,7 +7,8 @@ import { simBase } from '../config.js';
 
 const CASE_CODEC_VERSION = 1;
 const TYMP_TYPES = ['A', 'As', 'Ad', 'Ar', 'B', 'C', 'other'];
-export const REFLEX_SHAPES = ['symmetric', 'standard', 'drifting', 'other'];
+// 'biphasic' was appended after 'other' in the simulator's codec, keeping old indices valid.
+export const REFLEX_SHAPES = ['symmetric', 'standard', 'drifting', 'other', 'biphasic'];
 const REFLEX_FREQS = [500, 1000, 2000];
 
 class BitWriter {
@@ -30,7 +31,7 @@ function packEar(w, ear) {
   w.write(Math.max(0, Math.min(1023, Math.round(ear.TPP) + 512)), 10);
   w.write(scaled100(ear.ECV), 9);
   w.write(Math.max(0, Math.min(511, Math.round(ear.gradient))), 9);
-  w.write(enumIndex(REFLEX_SHAPES, ear.reflexShape, REFLEX_SHAPES.length - 1), 3);
+  w.write(enumIndex(REFLEX_SHAPES, ear.reflexShape, REFLEX_SHAPES.indexOf('other')), 3);
   ['ipsi', 'contra'].forEach((side) => REFLEX_FREQS.forEach((f) => w.write(reflex(ear.reflexes?.[side]?.[f]), 8)));
 }
 
@@ -53,7 +54,7 @@ export function compactIsLossless(p) {
     const ear = p.ears[e];
     const r = ear.reflexes || {};
     return TYMP_TYPES.slice(0, -1).includes(ear.tympType)
-      && REFLEX_SHAPES.slice(0, -1).includes(ear.reflexShape)
+      && REFLEX_SHAPES.includes(ear.reflexShape) && ear.reflexShape !== 'other'
       && Number.isInteger(ear.TPP) && ear.TPP >= -512 && ear.TPP <= 511
       && ear.peakAdmittance >= 0 && ear.peakAdmittance <= 5.11
       && ear.ECV >= 0 && ear.ECV <= 5.11

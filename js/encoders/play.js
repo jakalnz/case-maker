@@ -1,8 +1,10 @@
-// Play audiometry simulator: index.html#case=base64url(JSON of the versioned
-// share wrapper), as play-simulator/js/case-serializer.js serializeCase makes it.
+// Play audiometry simulator: index.html#case=~<compact> via the simulator's own
+// js/case-codec.js (vendored), falling back to base64url(JSON of the versioned
+// share wrapper) as play-simulator/js/case-serializer.js serializeCase makes it.
 import { stringToBase64Url, stringToBase64 } from './base64url.js';
 import { resolve, slugify } from '../model.js';
 import { simBase } from '../config.js';
+import '../../vendor/play/case-codec.js';
 
 const KEY = 'play-sim-case-obfuscation-v1';
 
@@ -39,12 +41,21 @@ export function shareWrapper(cfg) {
 
 export function build(c, target) {
   const cfg = resolve(c, 'play');
-  const url = `${simBase('play', target)}index.html#case=${stringToBase64Url(JSON.stringify(shareWrapper(cfg)))}`;
   const raw = { ...cfg };
   delete raw.locked;
+  const codec = globalThis.CaseCodec;
+  const warnings = [];
+  let hash;
+  if (codec.canEncode(raw)) {
+    hash = codec.encode(raw, { locked: cfg.locked });
+  } else {
+    hash = stringToBase64Url(JSON.stringify(shareWrapper(cfg)));
+    warnings.push('Play: this case needs the long link format (values off the 5 dB grid or out of range).');
+  }
+  const url = `${simBase('play', target)}index.html#case=${hash}`;
   return {
     url,
-    warnings: [],
+    warnings,
     files: [{ name: `${slugify(cfg.name)}-play.json`, content: JSON.stringify(raw, null, 2) }],
     note: 'The link adds a "Shared via link" card to the play simulator home page; click it to start.',
   };
