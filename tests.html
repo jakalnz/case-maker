@@ -356,6 +356,90 @@ await attempt('derive rules', async () => {
   check('derive: DPOAE absent with conductive gap', dp.ears.right.points.every((p) => !p.present), true);
 });
 
+// AI auto-fill: schema rules and applying a sample extraction (no network).
+await attempt('AI schema', async () => {
+  const { EXTRACT_SCHEMA } = await import('./js/ai.js');
+  const bad = [];
+  (function walk(s, p) {
+    if (!s || typeof s !== 'object') return;
+    if (s.type === 'object') {
+      if (s.additionalProperties !== false) bad.push(`${p}: additionalProperties`);
+      const keys = Object.keys(s.properties || {});
+      if (JSON.stringify([...(s.required || [])].sort()) !== JSON.stringify([...keys].sort())) bad.push(`${p}: required`);
+      keys.forEach((k) => walk(s.properties[k], `${p}.${k}`));
+    }
+    if (s.items) walk(s.items, `${p}[]`);
+    (s.anyOf || []).forEach((a, i) => walk(a, `${p}|${i}`));
+    ['minimum', 'maximum', 'minLength', 'maxLength', 'pattern'].forEach((k) => { if (k in s) bad.push(`${p}: unsupported ${k}`); });
+  })(EXTRACT_SCHEMA, 'root');
+  report('AI schema follows structured-output rules', bad.length ? 'fail' : 'pass', bad.join('\n'));
+});
+
+function sampleExtraction() {
+  const row = (freqs, v) => Object.fromEntries(freqs.map((f) => [String(f), typeof v === 'function' ? v(f) : v]));
+  const AC = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000];
+  const BC = [250, 500, 750, 1000, 1500, 2000, 3000, 4000];
+  return {
+    caseTitle: 'Otosclerosis, right',
+    isPaediatric: false,
+    patient: { name: 'Ana Reyes', age: '42', occupation: 'Teacher', pronoun: 'she/her', medicalKnowledge: 'basic', personality: 'anxious', chattiness: 4, caregiverName: '', caregiverRelationship: '' },
+    meta: { category: ['Otosclerosis'], difficulty: 'moderate', clinicianNotes: 'Carhart notch.' },
+    history: {
+      reasonForAppointment: 'Gradual right hearing loss.',
+      previousHearingTest: { had: false, details: '' },
+      hearing: { betterEar: 'left', decline: 'gradual', declineDetails: 'Over 3 years. [ASK: family] Mum had the same.' },
+      hearingAids: { current: false, details: '' },
+      tinnitus: { present: true, location: 'right', details: 'Low hum.' },
+      soundSensitivity: { present: false, location: '', details: '' },
+      balance: { concern: 'none', details: '' },
+      earHealth: { experiences: ['noConcerns'], details: '' },
+      ent: { seen: false, history: [], details: '' },
+      generalHealth: { hospitalizations: '', headInjuries: false, headInjuriesDetails: '', pastInfections: [], pastInfectionsDetails: '', majorIllnesses: '', medications: '' },
+      noiseHistory: { type: ['none'], details: '' },
+      familyHistory: { has: true, details: 'Mother had surgery for otosclerosis.' },
+      otherConcerns: '',
+    },
+    paediatric: null,
+    otoscopy: { description: 'Right ear hearing loss.', findings: 'Normal tympanic membranes.' },
+    audiogram: {
+      rightAC: row(AC, (f) => (f === 750 || f === 1500 ? null : 45)), leftAC: row(AC, 10),
+      rightBC: row(BC, (f) => (f === 2000 ? 30 : f === 750 || f === 1500 ? null : 10)), leftBC: row(BC, (f) => (f === 750 || f === 1500 ? null : 10)),
+    },
+    speech: { right: { piMax: 100, score90: 100, dataPoints: [{ level: 50, score: 30 }, { level: 60, score: 80 }, { level: 75, score: 100 }] }, left: null },
+    immittance: {
+      right: { tympType: 'As', peakAdmittance: 0.18, TPP: -10, ECV: 1.1, ipsi: { 500: 'NR', 1000: 'NR', 2000: 'NR' }, contra: { 500: 'NR', 1000: 'NR', 2000: null } },
+      left: { tympType: 'A', peakAdmittance: 0.8, TPP: 0, ECV: 1.2, ipsi: { 500: 85, 1000: 85, 2000: 90 }, contra: { 500: 'NR', 1000: 'NR', 2000: 'NR' } },
+    },
+    dpoae: { right: [{ f2Hz: 1000, present: false }, { f2Hz: 4000, present: false }], left: [{ f2Hz: 1000, present: true }, { f2Hz: 4000, present: true }] },
+    abr: { rightPathology: 'none', leftPathology: 'none' },
+    provenance: { fromDocuments: ['Audiogram'], invented: ['Occupation'], notes: '' },
+    possibleIdentifiers: [],
+  };
+}
+
+await attempt('AI apply', async () => {
+  const { applyExtraction, describe, SECTIONS } = await import('./js/apply-extraction.js');
+  const c = blankCase();
+  const x = sampleExtraction();
+  const found = describe(x);
+  applyExtraction(c, x, SECTIONS.map(([k]) => k).filter((k) => found[k]));
+  check('AI apply: history + audiogram', {
+    name: c.history.patient.name, fam: c.history.history.familyHistory.has, id: !!c.history.id,
+    rac500: c.audiogram.right.ac[500], rac750: c.audiogram.right.ac[750], rbc2k: c.audiogram.right.bc[2000], title: c.meta.title,
+  }, { name: 'Ana Reyes', fam: true, id: true, rac500: 45, rac750: null, rbc2k: 30, title: 'Otosclerosis, right' });
+  const im = resolve(c, 'immittance');
+  check('AI apply: immittance', { rt: im.ears.right.tympType, rIpsi: im.ears.right.reflexes.ipsi[1000], lIpsi: im.ears.left.reflexes.ipsi[2000] }, { rt: 'As', rIpsi: null, lIpsi: 90 });
+  const dp = resolve(c, 'dpoae');
+  check('AI apply: DPOAE', { p: dp.protocol, r1k: dp.ears.right.points[0].present, l4k: dp.ears.left.points[4].present }, { p: 'dp1_6', r1k: false, l4k: true });
+  check('AI apply: speech right kept, left auto', { r: resolve(c, 'speech').rightEar.dataPoints.length, lo: 'leftEar.piMax' in c.sims.speech.overrides }, { r: 3, lo: false });
+  // Everything still encodes and decodes after an AI apply.
+  const r = ENCODERS.pta.build(c, 'deployed');
+  const dec = ptaCodec.decodeCompact(b64urlBytes(hashPart(r.url, 'c')), { xorPatientBytes: ptaObf.xorBytes });
+  check('AI apply: PTA round-trip', dec.patient, resolve(c, 'pta').patient);
+  hist.buildSystemPrompt(JSON.parse(ENCODERS.history.build(c, 'deployed').files[0].content));
+  report('AI apply: history prompt builds', 'pass');
+});
+
 // UI smoke test: every step renders for each example case without throwing.
 const { adultExample, childExample } = await import('./js/examples.js');
 const stepNames = ['start', 'history', 'otoscopy', 'audiogram', 'speech', 'immittance', 'dpoae', 'abr', 'output'];
