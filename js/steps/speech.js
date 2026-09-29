@@ -12,7 +12,7 @@ const s = (tag, attrs = {}, ...kids) => {
 
 // The simulator's own curve (vendored), so the preview matches what students see.
 // The "score at 90 dB HL" marker is always drawn at 90 dB HL.
-function preview(p) {
+export function speechSvg(p) {
   const W = 420, H = 200, M = { l: 34, r: 10, t: 10, b: 24 };
   const x = (db) => M.l + ((db + 10) / 110) * (W - M.l - M.r);
   const y = (pc) => M.t + (1 - pc / 100) * (H - M.t - M.b);
@@ -86,6 +86,6 @@ export function render(app) {
     stepHead(app, 'Speech testing', 'Word recognition per ear. Values start from the audiogram; edit anything to shape the curve.', ['speech']),
     legend(),
     h('div.grid.two', { style: { marginTop: '10px' } }, ear('rightEar', 'Right ear', 'r'), ear('leftEar', 'Left ear', 'l')),
-    section('Preview', preview(p), h('p.hint', 'The curve the simulator will use. Dots are your data points; the square marks the score at 90 dB HL (rollover ends there when it is below PI max).')),
+    section('Preview', speechSvg(p), h('p.hint', 'The curve the simulator will use. Dots are your data points; the square marks the score at 90 dB HL (rollover ends there when it is below PI max).')),
   );
 }

@@ -222,10 +222,49 @@ details > summary { cursor: pointer; font-weight: 600; margin: 6px 0; }
   .topbar { flex-wrap: wrap; padding: 10px 16px; }
 }
 
+/* ── printed case sheet (js/print-sheet.js) ── */
+.print-sheet { display: none; }
+
 @media print {
-  .topbar, .rail, .step-nav, .acts, .no-print { display: none !important; }
-  .layout { display: block; }
-  .panel { padding: 0; }
-  .card { box-shadow: none; break-inside: avoid; }
+  /* Always print in the light palette, whatever the screen theme. */
+  :root, :root:not([data-theme="light"]), :root[data-theme="dark"] {
+    --bg: #fff; --surface: #fff; --surface-2: #f5f7fa; --border: #d9dee5; --border-strong: #b8c0cc;
+    --text: #1b2330; --muted: #5b6574; --accent: #0f766e; --right: #c81e1e; --left: #1f56c9; color-scheme: light;
+  }
+  @page { size: A4; margin: 14mm 14mm 16mm; }
   body { background: #fff; }
+  body > *:not(.print-sheet) { display: none !important; }
+  .print-sheet { display: block; color: #1b2330; font: 10.5pt/1.45 -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; }
+  body[data-print="student"] .ps-instructor-only { display: none !important; }
 }
+
+.print-sheet h1 { font-size: 22pt; margin: 2px 0 4px; letter-spacing: -.01em; }
+.print-sheet h2 { font-size: 12pt; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #0f766e; color: #0f766e; }
+.print-sheet h3 { font-size: 10.5pt; margin: 0 0 6px; }
+.ps-head { border-bottom: 1px solid #d9dee5; padding-bottom: 10px; }
+.ps-kicker { font-size: 8.5pt; text-transform: uppercase; letter-spacing: .12em; color: #0f766e; font-weight: 700; }
+.ps-copy { color: #5b6574; letter-spacing: .06em; }
+.ps-meta { color: #5b6574; }
+.ps-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 7px; }
+.ps-step { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; padding: 8px 10px;
+  border: 1px solid #d9dee5; border-radius: 8px; break-inside: avoid; }
+.ps-num { width: 24px; height: 24px; border-radius: 50%; background: #0f766e; color: #fff; display: grid; place-items: center;
+  font-weight: 700; font-size: 10pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.ps-step-name { font-weight: 700; }
+.ps-task { color: #394453; }
+.ps-sub { color: #5b6574; font-size: 9pt; }
+.ps-action { margin-top: 3px; }
+.ps-link { color: #0f766e; font-weight: 700; text-decoration: none; border-bottom: 1px solid currentColor; }
+.ps-missing { color: #b45309; font-style: italic; }
+.ps-key { break-before: page; }
+.ps-block { margin: 0 0 14px; break-inside: avoid; }
+.ps-two { display: grid; grid-template-columns: 58% 1fr; gap: 14px; align-items: start; margin-bottom: 8px; }
+.ps-chart .aud-svg { width: 100%; border: 1px solid #d9dee5; border-radius: 6px; background: #fff; }
+.ps-table { border-collapse: collapse; width: 100%; font-size: 9pt; }
+.ps-table th, .ps-table td { border: 1px solid #d9dee5; padding: 3px 5px; text-align: center; }
+.ps-table th { background: #f5f7fa; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.ps-table.ps-narrow td:last-child { text-align: left; }
+.ps-right { color: #c81e1e; }
+.ps-left { color: #1f56c9; }
+.ps-note { color: #5b6574; font-size: 8.5pt; margin: 4px 0 0; }
+.ps-foot { margin-top: 18px; padding-top: 6px; border-top: 1px solid #d9dee5; color: #8a93a0; font-size: 8pt; }

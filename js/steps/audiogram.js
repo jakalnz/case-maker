@@ -47,9 +47,9 @@ function symbol(ear, kind, x, y) {
   return s('path', { d, stroke: color, 'stroke-width': 2, fill: 'none' });
 }
 
-function chart(app) {
-  const { c } = app;
-  const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'aud-svg', role: 'img', 'aria-label': 'Audiogram. Click to set a threshold for the selected ear and mode.' });
+// Read-only audiogram chart (also used on the printed case sheet).
+export function audiogramSvg(c, label = 'Audiogram') {
+  const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'aud-svg', role: 'img', 'aria-label': label });
   for (let db = -10; db <= 120; db += 10) {
     svg.appendChild(s('line', { x1: M.l, x2: W - M.r, y1: yOf(db), y2: yOf(db), class: 'gridline' + (db === 0 ? ' major' : '') }));
     svg.appendChild(s('text', { x: M.l - 6, y: yOf(db) + 3, 'text-anchor': 'end' }, String(db)));
@@ -68,6 +68,12 @@ function chart(app) {
       if (v != null) svg.appendChild(symbol(ear, kind, xOf(+f), yOf(v)));
     }));
   });
+  return svg;
+}
+
+function chart(app) {
+  const { c } = app;
+  const svg = audiogramSvg(c, 'Audiogram. Click to set a threshold for the selected ear and mode.');
   svg.addEventListener('click', (e) => {
     const pt = svg.createSVGPoint();
     pt.x = e.clientX; pt.y = e.clientY;
