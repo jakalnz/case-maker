@@ -165,6 +165,11 @@ await attempt('vendored files match the simulators', async () => {
     ['vendor/play/case-codec.js', '../play-simulator/js/case-codec.js'],
     ['vendor/history/cases.js', '../history-taking-simulator/js/cases.js'],
   ];
+  // The speech curve functions are copied out of the simulator's index.html.
+  const [piVendor, speechHtml] = await Promise.all([text('vendor/speech/pi-curve.js'), text('../speech-testing-simulator/index.html')]);
+  const fnsHere = extractFunctions(piVendor, ['fitLogistic', 'buildPICurve']).replace(/\r\n/g, '\n');
+  const fnsThere = extractFunctions(speechHtml, ['fitLogistic', 'buildPICurve']).replace(/\r\n/g, '\n');
+  report('drift: vendor/speech/pi-curve.js', fnsHere === fnsThere ? 'pass' : 'fail', fnsHere === fnsThere ? '' : 'differs from speech-testing-simulator/index.html – re-copy');
   for (const [mine, orig] of pairs) {
     const [a, b] = await Promise.all([text(mine), text(orig)]);
     if (a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n')) report(`drift: ${mine}`, 'pass');
