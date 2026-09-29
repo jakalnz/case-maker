@@ -7,9 +7,12 @@ The audiogram is entered once and drives the defaults for every test; anything
 can be overridden. The output is a link per simulator (plus `.json` files for the
 history simulator and PTA).
 
-Status: **stage 2** – the step-by-step editor (history, otoscopy text, audiogram,
-PTA/play, speech, immittance, DPOAE, ABR), the links & files page, and saving /
-opening cases. PDF auto-fill with Claude and otoscopy image upload come next.
+Status: **complete** – the step-by-step editor (history, otoscopy, audiogram,
+PTA/play, speech, immittance, DPOAE, ABR), the links & files page, saving /
+opening cases, **auto-fill with Claude** from guidance and anonymised PDFs/images
+(via the history simulator's worker and access code), and the **otoscopy image
+library** picker with upload and case creation (via the otoscopy admin worker).
+See `CLAUDE.md` for developer notes.
 
 Open `index.html` (PIN `1234`). Cases autosave in the browser; use **Cases ▾** to
 start a new one, open or download a `.casemaker.json` file, or duplicate a case.
