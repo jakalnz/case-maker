@@ -358,6 +358,22 @@ await attempt('derive rules', async () => {
   const abr = resolve(FIXTURES.child, 'abr');
   check('derive: ABR child 4 y', { adult: abr.adult, m: abr.ageMonths }, { adult: false, m: 48 });
   const dp = resolve(FIXTURES.child, 'dpoae');
+  // Speech: the automatic 90 dB HL score follows the curve, and never changes what the simulator does.
+  const { buildPICurve } = await import('./vendor/speech/pi-curve.js');
+  const { speechCurvePeaksBelow90 } = await import('./js/model.js');
+  const sp = resolve(a, 'speech');
+  const leftCurve = buildPICurve(sp.leftEar);
+  check('derive: speech score90 = curve at 90 when still rising', { peaks: speechCurvePeaksBelow90(sp.leftEar), s90: sp.leftEar.score90 },
+    { peaks: false, s90: Math.round(leftCurve(90)) });
+  check('derive: speech score90 = PI max when peaked', { peaks: speechCurvePeaksBelow90(sp.rightEar), s90: sp.rightEar.score90 }, { peaks: true, s90: sp.rightEar.piMax });
+  const oldStyle = buildPICurve({ ...sp.leftEar, score90: sp.leftEar.piMax });
+  const diffs = [];
+  for (let db = -10; db <= 120; db += 0.5) if (Math.abs(oldStyle(db) - leftCurve(db)) > 1e-9) diffs.push(db);
+  report('derive: speech curve unchanged by the new score90', diffs.length ? 'fail' : 'pass', diffs.length ? `differs at ${diffs.slice(0, 5).join(', ')} dB` : '');
+  const edited = clone(a);
+  setOverride(edited, 'speech', 'leftEar.dataPoints', [{ level: 60, score: 40 }, { level: 75, score: 90 }, { level: 85, score: 100 }]);
+  setOverride(edited, 'speech', 'leftEar.piMax', 100);
+  check('derive: speech score90 follows edited points', resolve(edited, 'speech').leftEar.score90, 100);
   check('derive: DPOAE absent with conductive gap', dp.ears.right.points.every((p) => !p.present), true);
 });
 

@@ -5,6 +5,7 @@
 // can be hand-edited while untouched fields keep following the audiogram.
 
 import { newCaseTemplate, newPaediatricHistoryTemplate } from '../vendor/history/cases.js';
+import { fitLogistic, buildPICurve } from '../vendor/speech/pi-curve.js';
 
 export const FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000];
 export const BC_FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000];
@@ -253,8 +254,36 @@ export function deriveSpeechEar(c, ear) {
   };
 }
 
+// Does the simulator use "score at 90 dB HL" for this ear? Only for rollover:
+// buildPICurve applies it when the fitted curve peaks below 90 dB HL (and the
+// score is below PI max). When the curve is still rising at 90 dB it is ignored.
+export function speechCurvePeaksBelow90(ear) {
+  const pts = (ear.dataPoints || []).filter((p) => p.level != null && p.score != null && p.level !== '' && p.score !== '');
+  if (!pts.length) return true;
+  const { L50, k } = fitLogistic(pts, ear.piMax);
+  return L50 + Math.log(99) / k < 90;
+}
+
+// Automatic "score at 90 dB HL": PI max when the curve has peaked before 90 dB
+// (no rollover unless edited), otherwise what the curve actually gives at 90 dB,
+// so the field matches what a student scores there.
+export function autoScore90(ear) {
+  if (speechCurvePeaksBelow90(ear)) return ear.piMax;
+  const curve = buildPICurve({ ...ear, score90: ear.piMax });
+  return clamp(Math.round(curve(90)), 0, ear.piMax);
+}
+
 export function deriveSpeech(c) {
-  return { id: caseSlugId(c), name: caseTitle(c), rightEar: deriveSpeechEar(c, 'right'), leftEar: deriveSpeechEar(c, 'left') };
+  const ov = c.sims.speech.overrides;
+  const ear = (side) => {
+    const key = `${side}Ear`;
+    const base = deriveSpeechEar(c, side);
+    // Use any hand-edited curve inputs, so the auto score follows the curve actually sent.
+    const effective = { ...base };
+    ['dataPoints', 'piMax', 'bestAC'].forEach((f) => { if (`${key}.${f}` in ov) effective[f] = clone(ov[`${key}.${f}`]); });
+    return { ...base, score90: autoScore90(effective) };
+  };
+  return { id: caseSlugId(c), name: caseTitle(c), rightEar: ear('right'), leftEar: ear('left') };
 }
 
 export const TYMP_PRESETS = {

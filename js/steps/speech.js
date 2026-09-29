@@ -1,5 +1,5 @@
 import { h, section, simInput, stepHead, legend } from '../ui.js';
-import { resolve, isOverridden, setOverride, clearOverride, clone } from '../model.js';
+import { resolve, isOverridden, setOverride, clearOverride, clone, speechCurvePeaksBelow90 } from '../model.js';
 import { buildPICurve } from '../../vendor/speech/pi-curve.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -75,7 +75,10 @@ export function render(app) {
       simInput(ctx, `${earKey}.bestBC`, { label: 'Best BC threshold (dB HL)', step: 5, hint: 'Used for cross-hearing when this is the non-test ear.' }),
       simInput(ctx, `${earKey}.largestABGap`, { label: 'Largest air–bone gap (dB)', step: 5, min: 0, max: 70, hint: 'Used when this is the non-test (masked) ear.' }),
       simInput(ctx, `${earKey}.piMax`, { label: 'PI max (%)', min: 0, max: 100 }),
-      simInput(ctx, `${earKey}.score90`, { label: 'Score at 90 dB HL (%)', min: 0, max: 100, hint: 'Lower than PI max = rollover.' })),
+      simInput(ctx, `${earKey}.score90`, { label: 'Score at 90 dB HL (%)', min: 0, max: 100,
+        hint: speechCurvePeaksBelow90(p[earKey])
+          ? 'Lower than PI max = rollover (the curve bends down to this score at 90 dB HL).'
+          : 'Not used by the simulator for this ear: the curve is still rising at 90 dB HL, so students get the curve value shown here.' })),
     h('h4', 'Word-score data points'),
     pointsTable(app, earKey));
 
