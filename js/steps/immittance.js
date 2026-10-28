@@ -3,6 +3,7 @@ import { resolve, setOverride, TYMP_PRESETS } from '../model.js';
 
 const TYPES = [['A', 'A – normal'], ['As', 'As – shallow (stiff)'], ['Ad', 'Ad – deep (flaccid)'], ['Ar', 'Ar'], ['B', 'B – flat'], ['C', 'C – negative pressure']];
 const SHAPES = [['standard', 'Standard'], ['symmetric', 'Symmetric'], ['drifting', 'Drifting'], ['biphasic', 'Biphasic']];
+const SEVERITIES = [['mild', 'Mild'], ['moderate', 'Moderate'], ['severe', 'Severe']];
 const REFLEX = [['', 'Absent'], ...[70, 75, 80, 85, 90, 95, 100, 105, 110].map((v) => [String(v), `${v} dB`])];
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -56,7 +57,9 @@ export function render(app) {
           simInput(ctx, `${base}.TPP`, { label: 'Peak pressure (daPa)', step: 5, min: -600, max: 300 }),
           simInput(ctx, `${base}.ECV`, { label: 'Ear canal volume (mL)', step: 0.05, min: 0, max: 5 }),
           simInput(ctx, `${base}.gradient`, { label: 'Width / gradient (daPa)', step: 5, min: 0, max: 400 }),
-          simInput(ctx, `${base}.reflexShape`, { label: 'Reflex shape', options: SHAPES })),
+          simInput(ctx, `${base}.reflexShape`, { label: 'Reflex shape', options: SHAPES }),
+          simInput(ctx, `${base}.probeFit.prob`, { label: 'Probe fit problem chance (%)', step: 5, min: 0, max: 100, hint: 'Chance each probe insertion is noisy; the student must reseat the probe.' }),
+          simInput(ctx, `${base}.probeFit.severity`, { label: 'Probe fit noise', options: SEVERITIES })),
         tymp(p.ears[e], e)),
       h('h4', `Acoustic reflexes – probe in the ${e} ear`),
       h('table.data',

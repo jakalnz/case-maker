@@ -5,7 +5,8 @@ import { bytesToBase64Url, stringToBase64 } from './base64url.js';
 import { resolve } from '../model.js';
 import { simBase } from '../config.js';
 
-const CASE_CODEC_VERSION = 1;
+const CASE_CODEC_VERSION = 2;
+const PROBE_FIT_SEVERITIES = ['mild', 'moderate', 'severe'];
 const TYMP_TYPES = ['A', 'As', 'Ad', 'Ar', 'B', 'C', 'other'];
 // 'biphasic' was appended after 'other' in the simulator's codec, keeping old indices valid.
 export const REFLEX_SHAPES = ['symmetric', 'standard', 'drifting', 'other', 'biphasic'];
@@ -33,6 +34,10 @@ function packEar(w, ear) {
   w.write(Math.max(0, Math.min(511, Math.round(ear.gradient))), 9);
   w.write(enumIndex(REFLEX_SHAPES, ear.reflexShape, REFLEX_SHAPES.indexOf('other')), 3);
   ['ipsi', 'contra'].forEach((side) => REFLEX_FREQS.forEach((f) => w.write(reflex(ear.reflexes?.[side]?.[f]), 8)));
+  // v2: probe fit problem chance (0–100 %) and noise severity
+  const fit = ear.probeFit || {};
+  w.write(Math.max(0, Math.min(100, Math.round(Number(fit.prob) || 0))), 7);
+  w.write(enumIndex(PROBE_FIT_SEVERITIES, fit.severity, 1), 2);
 }
 
 export function encodePatientCompact(p) {
@@ -59,6 +64,8 @@ export function compactIsLossless(p) {
       && ear.peakAdmittance >= 0 && ear.peakAdmittance <= 5.11
       && ear.ECV >= 0 && ear.ECV <= 5.11
       && Number.isInteger(ear.gradient) && ear.gradient >= 0 && ear.gradient <= 511
+      && Number.isInteger(ear.probeFit?.prob) && ear.probeFit.prob >= 0 && ear.probeFit.prob <= 100
+      && PROBE_FIT_SEVERITIES.includes(ear.probeFit?.severity)
       && ['ipsi', 'contra'].every((s) => REFLEX_FREQS.every((f) => r[s]?.[f] == null || (Number.isInteger(r[s][f]) && r[s][f] <= 254)));
   });
 }

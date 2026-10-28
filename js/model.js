@@ -324,6 +324,8 @@ export function deriveImmittance(c) {
       ...TYMP_PRESETS[type],
       ECV: child ? 0.7 : 1.2,
       reflexShape: 'standard',
+      // Chance (%) that each probe insertion gives a noisy fit, and how noisy.
+      probeFit: { prob: 0, severity: 'moderate' },
       reflexes: {
         ipsi: Object.fromEntries([500, 1000, 2000].map((f) => [f, reflexLevel(ear, ear, false, f)])),
         contra: Object.fromEntries([500, 1000, 2000].map((f) => [f, reflexLevel(ear, other, true, f)])),
