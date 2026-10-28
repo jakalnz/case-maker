@@ -8,10 +8,11 @@ import { FREQUENCIES, DB_MIN, DB_STEP, standardOcclusionRow } from './utils.js';
  * the JSON case-file schema (session-serializer.js) used for "Export JSON" /
  * class-library files, which stays full-fidelity and unpacked.
  */
-export const COMPACT_FORMAT_VERSION = 3;
-// Older links still decode with defaults: v1 has no response latency, and
-// v1/v2 have no BC attenuation (0 dB) and get the standard occlusion effect.
-const SUPPORTED_VERSIONS = [1, 2, 3];
+export const COMPACT_FORMAT_VERSION = 4;
+// Older links still decode with defaults: v1 has no response latency,
+// v1/v2 have no BC attenuation (0 dB) and get the standard occlusion effect,
+// and v1-v3 have no ULL points.
+const SUPPORTED_VERSIONS = [1, 2, 3, 4];
 
 const EARS = ['right', 'left'];
 const MODES = ['AC', 'BC'];
@@ -210,7 +211,7 @@ function readPatient(reader, version) {
 
 function writeStoredPoints(writer, points) {
   const bySlot = new Map();
-  points.forEach((p) => bySlot.set(pointKeyIndex(p.ear, p.mode, p.freq, p.masked), p));
+  points.filter((p) => p.mode !== 'ULL').forEach((p) => bySlot.set(pointKeyIndex(p.ear, p.mode, p.freq, p.masked), p));
   for (let slot = 0; slot < SLOT_COUNT; slot++) {
     writer.write(bySlot.has(slot) ? 1 : 0, 1);
   }
@@ -220,9 +221,16 @@ function writeStoredPoints(writer, points) {
     writer.write(levelToCode(p.level), LEVEL_BITS);
     writer.write(p.noResponse ? 1 : 0, 1);
   }
+  // v4+: ULL points, one per ear and frequency.
+  const ull = new Map(points.filter((p) => p.mode === 'ULL').map((p) => [`${p.ear}|${p.freq}`, p]));
+  EARS.forEach((ear) => FREQUENCIES.forEach((f) => writer.write(ull.has(`${ear}|${f}`) ? 1 : 0, 1)));
+  EARS.forEach((ear) => FREQUENCIES.forEach((f) => {
+    const p = ull.get(`${ear}|${f}`);
+    if (p) writer.write(levelToCode(p.level), LEVEL_BITS);
+  }));
 }
 
-function readStoredPoints(reader) {
+function readStoredPoints(reader, version) {
   const present = [];
   for (let slot = 0; slot < SLOT_COUNT; slot++) {
     present.push(reader.read(1) === 1);
@@ -244,6 +252,13 @@ function readStoredPoints(reader) {
       level,
       noResponse,
     });
+  }
+  if (version >= 4) {
+    const present = [];
+    EARS.forEach((ear) => FREQUENCIES.forEach((freq) => { if (reader.read(1) === 1) present.push({ ear, freq }); }));
+    present.forEach(({ ear, freq }) => points.push({
+      ear, mode: 'ULL', freq, masked: false, level: codeToLevel(reader.read(LEVEL_BITS)), noResponse: false,
+    }));
   }
   return points;
 }
@@ -301,7 +316,7 @@ export function decodeCompact(bytes, { xorPatientBytes } = {}) {
   const patient = readPatient(new BitReader(patientBytes), version);
 
   const pointsBytes = bytes.subarray(patientStart + patientLength);
-  const storedPoints = readStoredPoints(new BitReader(pointsBytes));
+  const storedPoints = readStoredPoints(new BitReader(pointsBytes), version);
 
   return {
     schemaVersion: 2,
