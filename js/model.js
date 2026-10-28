@@ -6,6 +6,7 @@
 
 import { newCaseTemplate, newPaediatricHistoryTemplate } from '../vendor/history/cases.js';
 import { fitLogistic, buildPICurve } from '../vendor/speech/pi-curve.js';
+import { standardOcclusionRow } from '../vendor/pta/utils.js';
 
 export const FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000];
 export const BC_FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000];
@@ -191,8 +192,9 @@ export function derivePta(c) {
     });
     patient[ear] = { cochlear, ipsiConductive: ipsi, bcAttenuation: flatRow(FREQS, 0), ascDescDiff: flatRow(FREQS, 2), psychWidth: flatRow(FREQS, 4) };
   });
-  // BC occlusion effect for the covered (masked) ear, per AC transducer.
-  patient.occlusion = { headphone: flatRow(FREQS, 0), insertphone: flatRow(FREQS, 0) };
+  // BC occlusion effect for the covered (masked) ear, per AC transducer:
+  // the simulator's standard values unless edited.
+  patient.occlusion = { headphone: standardOcclusionRow('headphone'), insertphone: standardOcclusionRow('insertphone') };
   // Typical 400–600 ms; widen it for a slow or inconsistent responder.
   patient.responseLatency = { minMs: 400, maxMs: 600 };
   return {

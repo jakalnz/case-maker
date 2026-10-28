@@ -1,4 +1,4 @@
-import { FREQUENCIES, DB_MIN, DB_STEP } from './utils.js';
+import { FREQUENCIES, DB_MIN, DB_STEP, standardOcclusionRow } from './utils.js';
 
 /**
  * Compact binary encoding for share links, used instead of raw JSON so the
@@ -10,7 +10,7 @@ import { FREQUENCIES, DB_MIN, DB_STEP } from './utils.js';
  */
 export const COMPACT_FORMAT_VERSION = 3;
 // Older links still decode with defaults: v1 has no response latency, and
-// v1/v2 have no BC attenuation or occlusion (0 dB).
+// v1/v2 have no BC attenuation (0 dB) and get the standard occlusion effect.
 const SUPPORTED_VERSIONS = [1, 2, 3];
 
 const EARS = ['right', 'left'];
@@ -180,7 +180,7 @@ function writePatient(writer, patient) {
     writer.write(Math.min((1 << LATENCY_BITS) - 1, Math.max(0, Math.round(ms / LATENCY_STEP_MS))), LATENCY_BITS);
   });
   EARS.forEach((ear) => BC_ROWS.forEach((rowName) => writeRow(writer, patient[ear][rowName] ?? zeroRow(), LEVEL_BITS, levelToCode)));
-  TRANSDUCERS.forEach((t) => writeRow(writer, patient.occlusion?.[t] ?? zeroRow(), LEVEL_BITS, levelToCode));
+  TRANSDUCERS.forEach((t) => writeRow(writer, patient.occlusion?.[t] ?? standardOcclusionRow(t), LEVEL_BITS, levelToCode));
 }
 
 function zeroRow() {
@@ -203,7 +203,7 @@ function readPatient(reader, version) {
   }));
   patient.occlusion = {};
   TRANSDUCERS.forEach((t) => {
-    patient.occlusion[t] = version >= 3 ? readRow(reader, LEVEL_BITS, codeToLevel) : zeroRow();
+    patient.occlusion[t] = version >= 3 ? readRow(reader, LEVEL_BITS, codeToLevel) : standardOcclusionRow(t);
   });
   return patient;
 }

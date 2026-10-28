@@ -19,6 +19,18 @@ export const BC_MAX_LEVEL = {
   4000: 70,
 };
 
+// Standard BC occlusion effect (dB) for the ear covered by the AC
+// transducer: supra-aural headphones 30/20/10 dB and inserts 10/10/0 dB at
+// 250/500/1000 Hz, 750 Hz halfway between, none above 1000 Hz.
+const OCCLUSION_TABLE = {
+  headphone: { 250: 30, 500: 20, 750: 15, 1000: 10 },
+  insertphone: { 250: 10, 500: 10, 750: 5, 1000: 0 },
+};
+
+export function standardOcclusionRow(transducer) {
+  return Object.fromEntries(FREQUENCIES.map((f) => [f, OCCLUSION_TABLE[transducer][f] ?? 0]));
+}
+
 export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
