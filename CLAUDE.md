@@ -12,7 +12,7 @@ build step, no dependencies. Live at https://jakalnz.github.io/case-maker/ (repo
   `../pta-simulator/js/...`, `../play-simulator/js/...`, speech/DPOAE decoders pulled out of their app files).
 - `tests.html` round-trips every encoder through its simulator's own decoder, checks derive rules, the AI schema,
   normalise/apply of AI replies, renders every step, and flags drift between `vendor/` and the originals.
-  Expect **64 passed, 0 failed**. Headless run: Chrome `--headless=new --screenshot=... --virtual-time-budget=15000`.
+  Expect **67 passed, 0 failed**. Headless run: Chrome `--headless=new --screenshot=... --virtual-time-budget=15000`.
 - Print sheets: check them with headless Chrome `--print-to-pdf=<file> --no-pdf-header-footer` on a throwaway page
   (outside any repo, e.g. `Coding/.cm-test/`) that builds an example and calls `buildPrintSheet()`, then sets
   `document.body.dataset.print = 'student' | 'instructor'`. Delete the throwaway page afterwards. Don't click the
@@ -50,8 +50,10 @@ cochlear = BC, air–bone gap carried from 4 kHz to 6/8 kHz; PTA cochlear/ipsiCo
 0.5–4k; speech bestAC = best single-frequency AC, piMax falls with cochlear PTA, score90 = piMax when the fitted
 curve peaks below 90 dB HL, otherwise the curve's own value at 90 dB HL (`autoScore90`; see Speech below); ABR thresholds clamped ≥ −5
 (codec floor); DPOAE present when AC ≤ 30 and gap < 10; immittance As (adult) / B (child, < 6 y) when probe-ear gap
-≥ 15, reflexes absent for probe-ear conductive loss or stimulus-ear gap ≥ 30, rising above 50 dB HL cochlear, absent
-above 75. Case ids used in links are short and stable: `cm-` + first 8 hex of the project id (DPOAE seeds its
+≥ 15, reflexes absent for probe-ear conductive loss or stimulus-ear gap ≥ 30, otherwise from the stimulus ear's cochlear
+threshold via Gelfand et al. (1990) 10th–90th percentile norms (`GELFAND_ART_NORMS`): middle of the range for the
+default cochlear pattern, 10 dB above it (retro-elevated) or absent (retro-absent) per `c.sims.immittance.reflexPattern`
+(set in the immittance step), plus the stimulus-ear gap; absent above 110. Cells can still be overridden by hand. Case ids used in links are short and stable: `cm-` + first 8 hex of the project id (DPOAE seeds its
 generated values from it).
 
 ## Encoders and link formats

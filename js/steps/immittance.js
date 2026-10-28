@@ -1,5 +1,5 @@
-import { h, section, simInput, stepHead, legend, resetOverrides } from '../ui.js';
-import { resolve, setOverride, TYMP_PRESETS } from '../model.js';
+import { h, section, simInput, stepHead, legend, resetOverrides, labelled } from '../ui.js';
+import { resolve, setOverride, TYMP_PRESETS, earThresholds, gelfandRange, REFLEX_PATTERNS, reflexPattern, setReflexPattern } from '../model.js';
 
 const TYPES = [['A', 'A – normal'], ['As', 'As – shallow (stiff)'], ['Ad', 'Ad – deep (flaccid)'], ['Ar', 'Ar'], ['B', 'B – flat'], ['C', 'C – negative pressure']];
 const SHAPES = [['standard', 'Standard'], ['symmetric', 'Symmetric'], ['drifting', 'Drifting'], ['biphasic', 'Biphasic']];
@@ -39,6 +39,16 @@ export function render(app) {
   const ctx = { c: app.c, key: 'immittance', refresh: () => app.refresh() };
   const p = resolve(app.c, 'immittance');
   const reflexCell = (path) => simInput(ctx, path, { options: REFLEX, parse: (v) => (v === '' ? null : Number(v)) });
+  const th = { right: earThresholds(app.c, 'right'), left: earThresholds(app.c, 'left') };
+  // Gelfand 10th–90th percentile for the stimulus ear at each frequency.
+  const normCells = (stim) => [500, 1000, 2000].map((f) => {
+    const [lo, hi] = gelfandRange(th[stim].cochlear[f], f);
+    return h('td.hint', { style: { fontSize: '11px' } }, `${lo}–${hi === null ? 'NR' : hi}`);
+  });
+  const patternPicker = (e) => labelled(`Reflex pattern, ${e} ear as stimulus`,
+    h('select', { onchange: (ev) => { setReflexPattern(app.c, e, ev.target.value); app.refresh(); } },
+      REFLEX_PATTERNS.map(([v, l]) => h('option', { value: v, selected: v === reflexPattern(app.c, e) }, l))),
+    'Sets the ipsi reflexes in this ear and the contra reflexes measured in the other ear.');
 
   const ear = (e, label, cls) => {
     const base = `ears.${e}`;
@@ -62,15 +72,19 @@ export function render(app) {
           simInput(ctx, `${base}.probeFit.severity`, { label: 'Probe fit noise', options: SEVERITIES })),
         tymp(p.ears[e], e)),
       h('h4', `Acoustic reflexes – probe in the ${e} ear`),
+      patternPicker(e),
       h('table.data',
         h('tr', h('th'), h('th', '500'), h('th', '1k'), h('th', '2k')),
         h('tr', h('th.row-h', 'Ipsi'), [500, 1000, 2000].map((f) => h('td', reflexCell(`${base}.reflexes.ipsi.${f}`)))),
-        h('tr', h('th.row-h', `Contra (stimulus ${e === 'right' ? 'left' : 'right'})`), [500, 1000, 2000].map((f) => h('td', reflexCell(`${base}.reflexes.contra.${f}`))))),
+        h('tr', h('th.row-h.hint', 'normal range'), normCells(e)),
+        h('tr', h('th.row-h', `Contra (stimulus ${e === 'right' ? 'left' : 'right'})`), [500, 1000, 2000].map((f) => h('td', reflexCell(`${base}.reflexes.contra.${f}`)))),
+        h('tr', h('th.row-h.hint', 'normal range'), normCells(e === 'right' ? 'left' : 'right'))),
+      h('p.hint', 'Auto values use the stimulus ear\'s cochlear threshold with the Gelfand et al. (1990) 10th–90th percentile norms (cochlear: middle of the range; retrocochlear: 10 dB above it, or absent), raised by any stimulus-ear conductive gap, and absent when the probe ear has a conductive loss. Pick any cell to set it by hand; ↺ returns it to auto. NR in the range means no response is still within normal limits.'),
       h('button.btn.small', { type: 'button', style: { marginTop: '8px' }, onclick: () => { resetOverrides(app.c, 'immittance', base); app.refresh(); } }, `Reset ${e} ear to auto`));
   };
 
   return h('div',
-    stepHead(app, 'Immittance', 'Tympanometry and acoustic reflexes. Auto values follow the audiogram: an air–bone gap suggests As (adult) or B (child) and removes reflexes where the probe ear has a conductive loss.', ['immittance']),
+    stepHead(app, 'Immittance', 'Tympanometry and acoustic reflexes. Auto values follow the audiogram: an air–bone gap suggests As (adult) or B (child) and removes reflexes where the probe ear has a conductive loss; reflex thresholds come from Gelfand norms for each ear\'s reflex pattern.', ['immittance']),
     legend(),
     h('div', { style: { marginTop: '10px' } }, ear('right', 'Right ear', 'r'), ear('left', 'Left ear', 'l')),
     h('p.hint', 'Age (for adult vs child ear-canal volume) comes from the history step. The student chooses adult/child norms in the simulator.'),

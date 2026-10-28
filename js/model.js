@@ -305,19 +305,77 @@ export function isChild(c) {
   return m != null && m < 72;
 }
 
+// Contralateral acoustic reflex thresholds (dB HL), 10th–90th percentile,
+// by the stimulus ear's hearing level (0–90 dB HL in 5 dB rows; 90 is
+// "90 or more") at 500, 1000 and 2000 Hz. null upper = no response is
+// within normal limits. Gelfand, Schwander & Silman (1990), J Speech Hear
+// Disord 55:198–205; also used for ipsi as a teaching approximation (as in
+// Wilding's PTA_Sim).
+export const GELFAND_ART_NORMS = {
+  0: [[75, 95], [75, 95], [75, 95]],
+  5: [[75, 95], [75, 95], [75, 95]],
+  10: [[75, 95], [75, 95], [75, 95]],
+  15: [[75, 95], [75, 95], [75, 95]],
+  20: [[75, 95], [75, 95], [75, 95]],
+  25: [[75, 95], [75, 95], [75, 95]],
+  30: [[75, 95], [75, 95], [75, 100]],
+  35: [[75, 95], [75, 95], [75, 100]],
+  40: [[75, 95], [75, 95], [75, 100]],
+  45: [[80, 95], [80, 95], [75, 105]],
+  50: [[80, 100], [80, 100], [80, 105]],
+  55: [[80, 105], [85, 105], [85, 110]],
+  60: [[85, 105], [85, 110], [85, 115]],
+  65: [[90, 110], [90, 110], [90, 115]],
+  70: [[95, 115], [95, 115], [90, 120]],
+  75: [[95, 120], [95, 120], [95, 125]],
+  80: [[100, 120], [100, 125], [100, null]],
+  85: [[100, null], [100, null], [110, null]],
+  90: [[100, null], [100, null], [115, null]],
+};
+const ART_FREQS = [500, 1000, 2000];
+export const ART_MAX_LEVEL = 110; // highest level the immittance simulator presents
+
+// Normal (10th–90th percentile) ART range for a stimulus ear hearing level.
+export function gelfandRange(hearingLevel, freq) {
+  const row = Math.max(0, Math.min(90, r5(hearingLevel)));
+  return GELFAND_ART_NORMS[row][ART_FREQS.indexOf(freq)];
+}
+
+// How each ear's reflex pathway behaves as the stimulus ear.
+export const REFLEX_PATTERNS = [
+  ['cochlear', 'Cochlear / normal (mid normal range)'],
+  ['retro-elevated', 'Retrocochlear: elevated (above normal range)'],
+  ['retro-absent', 'Retrocochlear: absent'],
+];
+
+export function reflexPattern(c, ear) {
+  return c.sims.immittance.reflexPattern?.[ear] ?? 'cochlear';
+}
+
+export function setReflexPattern(c, ear, pattern) {
+  c.sims.immittance.reflexPattern = { ...c.sims.immittance.reflexPattern, [ear]: pattern };
+}
+
 export function deriveImmittance(c) {
   const child = isChild(c);
   const th = { right: earThresholds(c, 'right'), left: earThresholds(c, 'left') };
   const conductive = (ear) => avg(th[ear].gap, [500, 1000, 2000]) >= 15;
+  // ART from the stimulus ear's cochlear threshold (Gelfand norms) and its
+  // reflex pattern, raised by its conductive gap; absent if the probe ear has
+  // a conductive loss, or for contra with a large stimulus-ear gap.
   const reflexLevel = (probe, stim, contra, f) => {
     if (conductive(probe)) return null;
     const gS = th[stim].gap[f];
     if (contra && gS >= 30) return null;
-    const t = th[stim].cochlear[f];
-    if (t > 75) return null;
-    const base = t <= 50 ? 85 : 85 + (t - 50) * 0.8;
+    const [lower, upper] = gelfandRange(th[stim].cochlear[f], f);
+    const pattern = reflexPattern(c, stim);
+    let base;
+    if (pattern === 'retro-absent') return null;
+    if (pattern === 'retro-elevated') base = upper === null ? null : upper + 10;
+    else base = upper === null ? lower + 5 : (lower + upper) / 2;
+    if (base === null) return null;
     const lvl = r5(base + gS);
-    return lvl > 110 ? null : lvl;
+    return lvl > ART_MAX_LEVEL ? null : lvl;
   };
   const ears = {};
   EARS.forEach((ear) => {

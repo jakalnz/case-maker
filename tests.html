@@ -24,7 +24,7 @@ Serve the <code>Coding</code> folder (e.g. <code>python -m http.server</code>) a
 <div id="out"></div>
 
 <script type="module">
-import { blankCase, resolve, setOverride, clone, setPaediatric } from './js/model.js';
+import { blankCase, resolve, setOverride, clone, setPaediatric, setReflexPattern } from './js/model.js';
 import { ENCODERS } from './js/encoders/index.js';
 import { minify } from './js/encoders/dpoae.js';
 
@@ -351,6 +351,23 @@ for (const [fx, c] of Object.entries(FIXTURES)) {
     else report(`History ${fx}`, 'pass');
   });
 }
+
+// Acoustic reflexes from Gelfand et al. (1990) norms and each ear's reflex pattern.
+await attempt('derive ARTs', async () => {
+  const c = blankCase();
+  Object.keys(c.audiogram.right.ac).forEach((f) => { c.audiogram.right.ac[f] = 10; c.audiogram.left.ac[f] = 60; });
+  Object.keys(c.audiogram.right.bc).forEach((f) => { c.audiogram.right.bc[f] = 10; c.audiogram.left.bc[f] = 60; });
+  const arts = () => {
+    const im = resolve(c, 'immittance');
+    return { rIpsi: im.ears.right.reflexes.ipsi[1000], lIpsi: im.ears.left.reflexes.ipsi[1000], rContra: im.ears.right.reflexes.contra[1000] };
+  };
+  check('derive ARTs: cochlear = middle of Gelfand range', arts(), { rIpsi: 85, lIpsi: 100, rContra: 100 });
+  setReflexPattern(c, 'left', 'retro-elevated');
+  check('derive ARTs: retrocochlear elevated (left as stimulus)', arts(), { rIpsi: 85, lIpsi: null, rContra: null });
+  setReflexPattern(c, 'left', 'retro-absent');
+  setOverride(c, 'immittance', 'ears.left.reflexes.ipsi.1000', 95);
+  check('derive ARTs: retrocochlear absent keeps manual cells', arts(), { rIpsi: 85, lIpsi: 95, rContra: null });
+});
 
 // Derive sanity checks against the clinical rules.
 await attempt('derive rules', async () => {
