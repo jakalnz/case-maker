@@ -1,7 +1,8 @@
 // Audiogram step: the single source of truth for thresholds, plus the PTA and
 // play simulator settings that are derived from it.
 import { h, section, labelled, simInput, stepHead, legend, resetOverrides } from '../ui.js';
-import { FREQS, BC_FREQS, EARS, earThresholds, avg, clamp, r5 } from '../model.js';
+import { FREQS, BC_FREQS, EARS, earThresholds, avg, clamp, r5, setOverride } from '../model.js';
+import { occlusionPreset } from '../../vendor/pta/utils.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const s = (tag, attrs = {}, ...kids) => {
@@ -141,6 +142,33 @@ function presets(app) {
 
 // ─── PTA and play settings ─────────────────────────────────────────────────
 
+const OCCLUSION_PRESETS = [
+  ['standard', 'Standard clinical OEFs'],
+  ['50', 'Measured, median'],
+  ['75', 'Measured, 75th percentile'],
+  ['90', 'Measured, 90th percentile'],
+  ['25', 'Measured, 25th percentile'],
+  ['random', 'Measured, random patient'],
+];
+
+// Sets both occlusion rows from a preset. Standard is the auto value, so it
+// just clears any occlusion overrides.
+function occlusionPresetPicker(app) {
+  const sel = h('select', OCCLUSION_PRESETS.map(([v, l]) => h('option', { value: v }, l)));
+  const apply = () => {
+    resetOverrides(app.c, 'pta', 'patient.occlusion');
+    if (sel.value !== 'standard') {
+      const rows = occlusionPreset(sel.value === 'random' ? 'random' : Number(sel.value));
+      Object.entries(rows).forEach(([t, row]) => FREQS.forEach((f) => setOverride(app.c, 'pta', `patient.occlusion.${t}.${f}`, row[f])));
+    }
+    app.refresh();
+  };
+  return h('div.inline', { style: { marginTop: '8px' } },
+    h('span.hint', 'Occlusion values:'), h('span', { style: { width: '220px' } }, sel),
+    h('button.btn.small', { type: 'button', onclick: apply }, 'Apply'),
+    h('span.hint', 'Measured: Wallaert et al. (2024), Table 7, up to 2 kHz.'));
+}
+
 function ptaPanel(app) {
   const ctx = { c: app.c, key: 'pta', refresh: () => app.refresh() };
   const row = (label, path, cls) => h('tr', h('th.row-h', { class: cls }, label),
@@ -172,6 +200,7 @@ function ptaPanel(app) {
         row('IA inserts', 'patient.crossIAA.insertphone'),
         row('Occlusion headphones', 'patient.occlusion.headphone'),
         row('Occlusion inserts', 'patient.occlusion.insertphone'))),
+      occlusionPresetPicker(app),
       h('button.btn.small', { type: 'button', style: { marginTop: '8px' }, onclick: () => { resetOverrides(app.c, 'pta', 'patient'); app.refresh(); } }, 'Reset model to audiogram')));
 }
 
