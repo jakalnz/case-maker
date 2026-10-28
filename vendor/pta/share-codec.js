@@ -8,7 +8,9 @@ import { FREQUENCIES, DB_MIN, DB_STEP } from './utils.js';
  * the JSON case-file schema (session-serializer.js) used for "Export JSON" /
  * class-library files, which stays full-fidelity and unpacked.
  */
-export const COMPACT_FORMAT_VERSION = 1;
+export const COMPACT_FORMAT_VERSION = 2;
+// v1 links (no response latency) still decode, with the default latency.
+const SUPPORTED_VERSIONS = [1, 2];
 
 const EARS = ['right', 'left'];
 const MODES = ['AC', 'BC'];
@@ -27,6 +29,12 @@ const LEVEL_BITS = 5; // 0..26 -> DB_MIN..DB_MAX in DB_STEP increments (27 value
 const FINE_LEVEL_BITS = 8; // 0..255 -> DB_MIN..(DB_MIN+255) in 1dB increments
 const GRID_ROWS = ['cochlear', 'ipsiConductive'];
 const FINE_ROWS = ['ascDescDiff', 'psychWidth'];
+
+// v2+: patient.responseLatency {minMs, maxMs}, 6 bits each in 50ms steps
+// (0..3150ms; patient-model.js clamps to 0..3000).
+const LATENCY_BITS = 6;
+const LATENCY_STEP_MS = 50;
+const DEFAULT_LATENCY = { minMs: 400, maxMs: 600 };
 
 const INSERTPHONE_DEFAULT = FREQUENCIES.map((f) => (f <= 1000 ? 60 : 50));
 
@@ -164,9 +172,13 @@ function writePatient(writer, patient) {
     FINE_ROWS.forEach((rowName) => writeRow(writer, patient[ear][rowName], FINE_LEVEL_BITS, fineToCode));
   });
   TRANSDUCERS.forEach((t) => writeCrossRow(writer, t, patient.crossIAA[t]));
+  const latency = patient.responseLatency ?? DEFAULT_LATENCY;
+  [latency.minMs, latency.maxMs].forEach((ms) => {
+    writer.write(Math.min((1 << LATENCY_BITS) - 1, Math.max(0, Math.round(ms / LATENCY_STEP_MS))), LATENCY_BITS);
+  });
 }
 
-function readPatient(reader) {
+function readPatient(reader, version) {
   const patient = { crossIAA: {} };
   EARS.forEach((ear) => {
     patient[ear] = {};
@@ -174,6 +186,9 @@ function readPatient(reader) {
     FINE_ROWS.forEach((rowName) => { patient[ear][rowName] = readRow(reader, FINE_LEVEL_BITS, codeToFine); });
   });
   TRANSDUCERS.forEach((t) => { patient.crossIAA[t] = readCrossRow(reader); });
+  patient.responseLatency = version >= 2
+    ? { minMs: reader.read(LATENCY_BITS) * LATENCY_STEP_MS, maxMs: reader.read(LATENCY_BITS) * LATENCY_STEP_MS }
+    : { ...DEFAULT_LATENCY };
   return patient;
 }
 
@@ -253,7 +268,7 @@ export function encodeCompact(data, { xorPatientBytes } = {}) {
 export function decodeCompact(bytes, { xorPatientBytes } = {}) {
   const header = new BitReader(bytes);
   const version = header.read(4);
-  if (version !== COMPACT_FORMAT_VERSION) {
+  if (!SUPPORTED_VERSIONS.includes(version)) {
     throw new Error(`Unsupported compact share format version: ${version}`);
   }
   const transducer = header.read(1) === 1 ? 'insertphone' : 'headphone';
@@ -267,7 +282,7 @@ export function decodeCompact(bytes, { xorPatientBytes } = {}) {
   const patientStart = headerByteLength + 1;
   const patientBytes = bytes.slice(patientStart, patientStart + patientLength);
   if (locked && xorPatientBytes) xorPatientBytes(patientBytes);
-  const patient = readPatient(new BitReader(patientBytes));
+  const patient = readPatient(new BitReader(patientBytes), version);
 
   const pointsBytes = bytes.subarray(patientStart + patientLength);
   const storedPoints = readStoredPoints(new BitReader(pointsBytes));

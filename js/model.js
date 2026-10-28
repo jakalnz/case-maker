@@ -191,6 +191,8 @@ export function derivePta(c) {
     });
     patient[ear] = { cochlear, ipsiConductive: ipsi, ascDescDiff: flatRow(FREQS, 2), psychWidth: flatRow(FREQS, 4) };
   });
+  // Typical 400–600 ms; widen it for a slow or inconsistent responder.
+  patient.responseLatency = { minMs: 400, maxMs: 600 };
   return {
     schemaVersion: 2,
     createdAt: new Date().toISOString(),
