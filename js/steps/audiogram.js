@@ -154,7 +154,7 @@ function ptaPanel(app) {
       simInput(ctx, 'patient.responseLatency.maxMs', { label: 'Response delay max (ms)', min: 0, max: 3000, step: 50 })),
     h('details', { style: { marginTop: '12px' } },
       h('summary', 'Per-frequency patient model (advanced)'),
-      h('p.hint', 'Cochlear = true bone-conduction threshold; conductive = air–bone gap added to air conduction. Interaural attenuation controls cross-hearing.'),
+      h('p.hint', 'Cochlear = true bone-conduction threshold; conductive = air–bone gap added to air conduction. BC attenuation worsens BC reaching that cochlea (e.g. a Carhart notch). Interaural attenuation controls cross-hearing. Occlusion = dB added to BC in the ear covered by the masking earphone, for each transducer.'),
       legend(),
       h('div.table-wrap', h('table.data',
         h('tr', h('th'), FREQS.map((f) => h('th', f >= 1000 ? `${f / 1000}k` : f))),
@@ -162,12 +162,16 @@ function ptaPanel(app) {
         row('R conductive', 'patient.right.ipsiConductive', 'r'),
         row('L cochlear', 'patient.left.cochlear', 'l'),
         row('L conductive', 'patient.left.ipsiConductive', 'l'),
+        row('R BC attenuation', 'patient.right.bcAttenuation', 'r'),
+        row('L BC attenuation', 'patient.left.bcAttenuation', 'l'),
         row('R asc/desc diff', 'patient.right.ascDescDiff', 'r'),
         row('R psych. width', 'patient.right.psychWidth', 'r'),
         row('L asc/desc diff', 'patient.left.ascDescDiff', 'l'),
         row('L psych. width', 'patient.left.psychWidth', 'l'),
         row('IA headphones', 'patient.crossIAA.headphone'),
-        row('IA inserts', 'patient.crossIAA.insertphone'))),
+        row('IA inserts', 'patient.crossIAA.insertphone'),
+        row('Occlusion headphones', 'patient.occlusion.headphone'),
+        row('Occlusion inserts', 'patient.occlusion.insertphone'))),
       h('button.btn.small', { type: 'button', style: { marginTop: '8px' }, onclick: () => { resetOverrides(app.c, 'pta', 'patient'); app.refresh(); } }, 'Reset model to audiogram')));
 }
 

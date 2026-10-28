@@ -8,9 +8,10 @@ import { FREQUENCIES, DB_MIN, DB_STEP } from './utils.js';
  * the JSON case-file schema (session-serializer.js) used for "Export JSON" /
  * class-library files, which stays full-fidelity and unpacked.
  */
-export const COMPACT_FORMAT_VERSION = 2;
-// v1 links (no response latency) still decode, with the default latency.
-const SUPPORTED_VERSIONS = [1, 2];
+export const COMPACT_FORMAT_VERSION = 3;
+// Older links still decode with defaults: v1 has no response latency, and
+// v1/v2 have no BC attenuation or occlusion (0 dB).
+const SUPPORTED_VERSIONS = [1, 2, 3];
 
 const EARS = ['right', 'left'];
 const MODES = ['AC', 'BC'];
@@ -28,6 +29,8 @@ const LEVEL_BITS = 5; // 0..26 -> DB_MIN..DB_MAX in DB_STEP increments (27 value
 // grid, which this wider encoding still represents exactly).
 const FINE_LEVEL_BITS = 8; // 0..255 -> DB_MIN..(DB_MIN+255) in 1dB increments
 const GRID_ROWS = ['cochlear', 'ipsiConductive'];
+// v3+: per-ear BC attenuation and per-transducer occlusion, on the same 5 dB grid.
+const BC_ROWS = ['bcAttenuation'];
 const FINE_ROWS = ['ascDescDiff', 'psychWidth'];
 
 // v2+: patient.responseLatency {minMs, maxMs}, 6 bits each in 50ms steps
@@ -176,6 +179,12 @@ function writePatient(writer, patient) {
   [latency.minMs, latency.maxMs].forEach((ms) => {
     writer.write(Math.min((1 << LATENCY_BITS) - 1, Math.max(0, Math.round(ms / LATENCY_STEP_MS))), LATENCY_BITS);
   });
+  EARS.forEach((ear) => BC_ROWS.forEach((rowName) => writeRow(writer, patient[ear][rowName] ?? zeroRow(), LEVEL_BITS, levelToCode)));
+  TRANSDUCERS.forEach((t) => writeRow(writer, patient.occlusion?.[t] ?? zeroRow(), LEVEL_BITS, levelToCode));
+}
+
+function zeroRow() {
+  return Object.fromEntries(FREQUENCIES.map((f) => [f, 0]));
 }
 
 function readPatient(reader, version) {
@@ -189,6 +198,13 @@ function readPatient(reader, version) {
   patient.responseLatency = version >= 2
     ? { minMs: reader.read(LATENCY_BITS) * LATENCY_STEP_MS, maxMs: reader.read(LATENCY_BITS) * LATENCY_STEP_MS }
     : { ...DEFAULT_LATENCY };
+  EARS.forEach((ear) => BC_ROWS.forEach((rowName) => {
+    patient[ear][rowName] = version >= 3 ? readRow(reader, LEVEL_BITS, codeToLevel) : zeroRow();
+  }));
+  patient.occlusion = {};
+  TRANSDUCERS.forEach((t) => {
+    patient.occlusion[t] = version >= 3 ? readRow(reader, LEVEL_BITS, codeToLevel) : zeroRow();
+  });
   return patient;
 }
 

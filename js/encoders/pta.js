@@ -9,10 +9,13 @@ import { simBase } from '../config.js';
 export function build(c, target) {
   const session = resolve(c, 'pta');
   const warnings = [];
-  EARS.forEach((ear) => ['cochlear', 'ipsiConductive'].forEach((row) => FREQS.forEach((f) => {
-    const v = session.patient[ear][row][f];
-    if (v % 5 !== 0 || v < -10 || v > 120) warnings.push(`PTA ${ear} ${row} ${f} Hz = ${v} is off the 5 dB grid (-10..120).`);
+  const offGrid = (label, v) => {
+    if (v % 5 !== 0 || v < -10 || v > 120) warnings.push(`PTA ${label} = ${v} is off the 5 dB grid (-10..120).`);
+  };
+  EARS.forEach((ear) => ['cochlear', 'ipsiConductive', 'bcAttenuation'].forEach((row) => FREQS.forEach((f) => {
+    offGrid(`${ear} ${row} ${f} Hz`, session.patient[ear][row][f]);
   })));
+  ['headphone', 'insertphone'].forEach((t) => FREQS.forEach((f) => offGrid(`${t} occlusion ${f} Hz`, session.patient.occlusion[t][f])));
   const { minMs, maxMs } = session.patient.responseLatency;
   if (minMs > maxMs) warnings.push(`PTA response delay min (${minMs} ms) is greater than max (${maxMs} ms).`);
   [minMs, maxMs].forEach((ms) => {

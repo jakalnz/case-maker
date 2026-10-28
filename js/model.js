@@ -189,8 +189,10 @@ export function derivePta(c) {
       cochlear[f] = clamp(r5(t.cochlear[f]), -10, 120);
       ipsi[f] = clamp(r5(t.gap[f]), 0, 120 - cochlear[f]);
     });
-    patient[ear] = { cochlear, ipsiConductive: ipsi, ascDescDiff: flatRow(FREQS, 2), psychWidth: flatRow(FREQS, 4) };
+    patient[ear] = { cochlear, ipsiConductive: ipsi, bcAttenuation: flatRow(FREQS, 0), ascDescDiff: flatRow(FREQS, 2), psychWidth: flatRow(FREQS, 4) };
   });
+  // BC occlusion effect for the covered (masked) ear, per AC transducer.
+  patient.occlusion = { headphone: flatRow(FREQS, 0), insertphone: flatRow(FREQS, 0) };
   // Typical 400–600 ms; widen it for a slow or inconsistent responder.
   patient.responseLatency = { minMs: 400, maxMs: 600 };
   return {
