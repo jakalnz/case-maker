@@ -352,6 +352,15 @@ for (const [fx, c] of Object.entries(FIXTURES)) {
   });
 }
 
+// Audiogram generator (ISO 7029 age, ISO 1999 noise, added losses).
+await attempt('audiogram generator', async () => {
+  const { generateEar, ageThreshold, noiseShift } = await import('./js/audiogram-generator.js');
+  check('generator: ISO 7029 male 70 y median at 1/4 kHz', [Math.round(ageThreshold(70, 'male', 50, 1000)), Math.round(ageThreshold(70, 'male', 50, 4000))], [11, 43]);
+  check('generator: ISO 1999 90 dB A for 20 y at 4 kHz', Math.round(noiseShift(90, 20, 4000)), 13);
+  const ear = generateEar({ age: 70, sex: 'male', percentile: 50, lex: 90, years: 20, snhl: { amount: 0 }, conductive: { amount: 20, shape: 'flat' } });
+  check('generator: age + noise, conductive on AC only', { ac4k: ear.ac[4000], bc4k: ear.bc[4000], ac1k: ear.ac[1000], bc1k: ear.bc[1000], bc8k: ear.bc[8000] }, { ac4k: 70, bc4k: 50, ac1k: 30, bc1k: 10, bc8k: undefined });
+});
+
 // Acoustic reflexes from Gelfand et al. (1990) norms and each ear's reflex pattern.
 await attempt('derive ARTs', async () => {
   const c = blankCase();

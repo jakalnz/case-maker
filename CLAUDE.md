@@ -12,7 +12,7 @@ build step, no dependencies. Live at https://jakalnz.github.io/case-maker/ (repo
   `../pta-simulator/js/...`, `../play-simulator/js/...`, speech/DPOAE decoders pulled out of their app files).
 - `tests.html` round-trips every encoder through its simulator's own decoder, checks derive rules, the AI schema,
   normalise/apply of AI replies, renders every step, and flags drift between `vendor/` and the originals.
-  Expect **67 passed, 0 failed**. Headless run: Chrome `--headless=new --screenshot=... --virtual-time-budget=15000`.
+  Expect **70 passed, 0 failed**. Headless run: Chrome `--headless=new --screenshot=... --virtual-time-budget=15000`.
 - Print sheets: check them with headless Chrome `--print-to-pdf=<file> --no-pdf-header-footer` on a throwaway page
   (outside any repo, e.g. `Coding/.cm-test/`) that builds an example and calls `buildPrintSheet()`, then sets
   `document.body.dataset.print = 'student' | 'instructor'`. Delete the throwaway page afterwards. Don't click the
@@ -28,6 +28,7 @@ build step, no dependencies. Live at https://jakalnz.github.io/case-maker/ (repo
 | `index.html`, `css/styles.css` | Shell: PIN gate, step rail, top bar (title, Cases ▾ menu, theme). Light/dark via CSS variables |
 | `js/main.js` | App shell (`window.caseMaker`): step routing, autosave (`localStorage` `casemaker-current` / `casemaker-projects`), open/download `.casemaker.json` |
 | `js/model.js` | The case project, audiogram interpretation (`earThresholds`), `derive*()` per simulator, overrides (`resolve`, `setOverride`) |
+| `js/audiogram-generator.js` | Audiogram from age (ISO 7029:2000 percentiles), noise (ISO 1999 median NIPTS, lg time term) and added SNHL / conductive shapes; used by the Audiogram step's "Generate" panel |
 | `js/ui.js` | DOM helper `h()`, `bound()` (plain fields), `simInput()` (derived field that records an override when edited) |
 | `js/steps/*.js` | One module per step, each `render(app)` → DOM node |
 | `js/encoders/*.js` | One per simulator, `build(case, target)` → `{ url, files, warnings, note }`; `index.js` `buildAll()` |

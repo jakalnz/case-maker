@@ -3,6 +3,7 @@
 import { h, section, labelled, simInput, stepHead, legend, resetOverrides } from '../ui.js';
 import { FREQS, BC_FREQS, EARS, earThresholds, avg, clamp, r5, setOverride } from '../model.js';
 import { occlusionPreset } from '../../vendor/pta/utils.js';
+import { generateEar, AGE_PERCENTILES, SNHL_SHAPES, CONDUCTIVE_SHAPES } from '../audiogram-generator.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const s = (tag, attrs = {}, ...kids) => {
@@ -140,6 +141,56 @@ function presets(app) {
     h('button.btn.small', { type: 'button', onclick: () => apply(['right', 'left']) }, 'Both'));
 }
 
+// ─── Generator (age / noise / added loss) ──────────────────────────────────
+
+// Kept between renders so the panel remembers its settings.
+const gen = {
+  age: 50, sex: 'male', percentile: 50, lex: 0, years: 0,
+  right: { snhl: 0, snhlShape: 'sloping', conductive: 0, conductiveShape: 'flat' },
+  left: { snhl: 0, snhlShape: 'sloping', conductive: 0, conductiveShape: 'flat' },
+};
+
+function generator(app) {
+  const num = (obj, key, attrs) => h('input', { type: 'number', value: obj[key], ...attrs, style: { width: '70px' },
+    onchange: (e) => { obj[key] = Number(e.target.value) || 0; } });
+  const pick = (obj, key, options) => h('select', { onchange: (e) => { obj[key] = Number.isNaN(Number(e.target.value)) ? e.target.value : Number(e.target.value); } },
+    options.map(([v, l]) => h('option', { value: v, selected: String(v) === String(obj[key]) }, l)));
+  const shapes = (table) => Object.entries(table).map(([k, v]) => [k, v.label]);
+  const earRow = (ear) => h('tr',
+    h('th.row-h', { class: ear[0] }, ear === 'right' ? 'Right' : 'Left'),
+    h('td', num(gen[ear], 'snhl', { min: 0, max: 100, step: 5 }), ' ', pick(gen[ear], 'snhlShape', shapes(SNHL_SHAPES))),
+    h('td', num(gen[ear], 'conductive', { min: 0, max: 60, step: 5 }), ' ', pick(gen[ear], 'conductiveShape', shapes(CONDUCTIVE_SHAPES))));
+  const apply = (ears) => {
+    ears.forEach((ear) => {
+      const { ac, bc } = generateEar({
+        age: gen.age, sex: gen.sex, percentile: gen.percentile, lex: gen.lex, years: gen.years,
+        snhl: { amount: gen[ear].snhl, shape: gen[ear].snhlShape },
+        conductive: { amount: gen[ear].conductive, shape: gen[ear].conductiveShape },
+      });
+      Object.assign(app.c.audiogram[ear].ac, ac);
+      Object.assign(app.c.audiogram[ear].bc, bc);
+    });
+    app.refresh();
+  };
+  return h('details', { style: { marginTop: '10px' } },
+    h('summary', 'Generate from age, noise and loss shape'),
+    h('div.grid', { style: { marginTop: '8px' } },
+      labelled('Age (18–80)', num(gen, 'age', { min: 18, max: 80, step: 1 })),
+      labelled('Sex (age norms)', pick(gen, 'sex', [['male', 'Male'], ['female', 'Female']])),
+      labelled('Hearing for age (ISO 7029)', pick(gen, 'percentile', AGE_PERCENTILES)),
+      labelled('Noise LEX,8h (dB A, 0 = none)', num(gen, 'lex', { min: 0, max: 110, step: 1 })),
+      labelled('Years of noise exposure', num(gen, 'years', { min: 0, max: 40, step: 1 }))),
+    h('table.data', { style: { marginTop: '8px' } },
+      h('tr', h('th'), h('th', 'Added sensorineural (dB, shape)'), h('th', 'Conductive (dB, shape)')),
+      earRow('right'), earRow('left')),
+    h('div.inline', { style: { marginTop: '8px' } },
+      h('span.hint', 'Fill the audiogram:'),
+      h('button.btn.small', { type: 'button', onclick: () => apply(['right']) }, 'Right'),
+      h('button.btn.small', { type: 'button', onclick: () => apply(['left']) }, 'Left'),
+      h('button.btn.small', { type: 'button', onclick: () => apply(['right', 'left']) }, 'Both')),
+    h('p.hint', 'Age: ISO 7029:2000 percentile of hearing threshold for the age and sex. Noise: ISO 1999 median noise-induced shift (500–6000 Hz), combined with age as age + noise − age × noise / 120. Added losses use the chosen shape at the given maximum. BC = the sensorineural part; AC adds the conductive component. Values are rounded to 5 dB and replace that ear’s audiogram; edit any point afterwards.'));
+}
+
 // ─── PTA and play settings ─────────────────────────────────────────────────
 
 const OCCLUSION_PRESETS = [
@@ -249,6 +300,7 @@ export function render(app) {
             onclick: () => { mode = i; app.refresh(); } }, m.label))),
           h('p.hint', { style: { margin: '0 0 8px' } }, 'Click the chart to place a threshold for the selected ear and mode; click it again to remove it. BC isn’t tested at 6 and 8 kHz; missing frequencies are interpolated.'),
           presets(app),
+          generator(app),
           summary(c))),
       h('div', { style: { marginTop: '12px' } }, thresholdTable(app))),
     section('Simulator settings',
